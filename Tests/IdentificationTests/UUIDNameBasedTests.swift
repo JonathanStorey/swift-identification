@@ -13,7 +13,7 @@ struct SHATests {
     @Test("SHA-1 matches the FIPS 180 test vectors", arguments: [
         ("", "da39a3ee5e6b4b0d3255bfef95601890afd80709"),
         ("abc", "a9993e364706816aba3e25717850c26c9cd0d89d"),
-        (twoBlocks, "84983e441c3bd26ebaae4aa1f95129e5e54670f1"),
+        (SHATests.twoBlocks, "84983e441c3bd26ebaae4aa1f95129e5e54670f1"),
     ])
     func sha1(_ message: String, _ digest: String) {
         #expect(hex(SHA.sha1(Array(message.utf8))) == digest)
@@ -22,7 +22,7 @@ struct SHATests {
     @Test("SHA-256 matches the FIPS 180 test vectors", arguments: [
         ("", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
         ("abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),
-        (twoBlocks, "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"),
+        (SHATests.twoBlocks, "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"),
     ])
     func sha256(_ message: String, _ digest: String) {
         #expect(hex(SHA.sha256(Array(message.utf8))) == digest)
