@@ -24,7 +24,7 @@ struct UUIDIdentityTests {
         #expect(UUID.installation == UUID.installation)
     }
 
-    @Test("Boot is available on macOS and Linux and is not a timestamp")
+    @Test("Boot is available on macOS and Linux")
     func boot() throws {
         #if os(macOS) || os(Linux)
         let boot = try #require(UUID.boot)
