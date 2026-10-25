@@ -15,15 +15,24 @@ extension UUID {
     /// It resets when the user deletes every app from that developer. On iOS, tvOS and visionOS
     /// this is `UIDevice.identifierForVendor`; on watchOS, `WKInterfaceDevice.identifierForVendor`;
     /// on macOS, the App Store's `deviceVerificationID`.
+    ///
+    /// The value is cached after the first non-`nil` read, since it cannot change while the app runs.
     @MainActor
     public static var vendor: UUID? {
+        if let cachedVendor {
+            return cachedVendor
+        }
         #if os(watchOS)
-        WKInterfaceDevice.current().identifierForVendor
+        cachedVendor = WKInterfaceDevice.current().identifierForVendor
         #elseif canImport(UIKit)
-        UIDevice.current.identifierForVendor
+        cachedVendor = UIDevice.current.identifierForVendor
         #else
-        AppStore.deviceVerificationID
+        cachedVendor = AppStore.deviceVerificationID
         #endif
+        return cachedVendor
     }
+
+    @MainActor
+    private static var cachedVendor: UUID?
 }
 #endif
