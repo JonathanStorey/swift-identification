@@ -57,9 +57,17 @@ struct UUIDTimestampRoundTripTests {
     @Test("Sub-millisecond truncates to 1/4096 ms")
     func subMillisecondTruncates() throws {
         let decoded = try #require(UUID.timestamp(sampleDate, compatibility: .subMillisecond).date(compatibility: .subMillisecond))
-        #expect(decoded != sampleDate)
         #expect(sampleDate.timeIntervalSince(decoded) >= 0)
         #expect(sampleDate.timeIntervalSince(decoded) < 0.001 / 4096 + 1e-9)
+    }
+
+    @Test("Sub-millisecond loses a date two Date ticks past a millisecond boundary")
+    func subMillisecondLosesPrecision() throws {
+        // 2 × 2⁻²³ s ≈ 238 ns is below one 1/4096 ms step (≈ 244 ns), so it truncates to the boundary.
+        let boundary = Date(timeIntervalSinceReferenceDate: 783_000_000)
+        let date = Date(timeIntervalSinceReferenceDate: 783_000_000 + 2 * 0x1p-23)
+        let decoded = try UUID.timestamp(date, compatibility: .subMillisecond).date(compatibility: .subMillisecond)
+        #expect(decoded == boundary)
     }
 
     @Test("Lossless returns the exact Date", arguments: [
@@ -144,6 +152,16 @@ struct UUIDTimestampOrderingTests {
         let repeatedDates = zip(dates, dates.dropFirst()).count { $0 == $1 }
         let outOfOrder = outOfOrderCount(ids)
         print("[tight-loop] \(compatibility.rawValue): \(outOfOrder)/\(count - 1) out of order, \(repeatedDates) repeated Date.now values")
-        #expect(outOfOrder == 0)
+        // Whether this passes depends on how often the clock repeats a value, which varies by
+        // platform and load. No option breaks ties, so none is guaranteed to stay ordered.
+        withKnownIssue("Ordering is not guaranteed when Date.now repeats", isIntermittent: true) {
+            #expect(outOfOrder == 0)
+        }
+    }
+
+    @Test("Identical dates lose order in every option", arguments: Compatibility.allCases)
+    func identicalDates(_ compatibility: Compatibility) throws {
+        let ids = try (0..<1_000).map { _ in try UUID.timestamp(sampleDate, compatibility: compatibility) }
+        #expect(outOfOrderCount(ids) > 0)
     }
 }
