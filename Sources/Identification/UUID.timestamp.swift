@@ -23,6 +23,29 @@ extension UUID {
     public static func timestamp(_ date: Date = .now) throws(TimestampError) -> UUID {
         try TimestampGenerator.shared.next(date)
     }
+
+    /// A time-ordered UUID v7 for the current moment.
+    ///
+    /// Same layout and ordering as `timestamp(_:)`, without throwing. If the system clock
+    /// reads a date that cannot be stored exactly (before 2018, or before 1970), the UUID
+    /// stores the nearest representable date instead.
+    public static var timestamp: UUID {
+        let now = Date.now
+        if let id = try? TimestampGenerator.shared.next(now) {
+            return id
+        }
+        // The only remaining failure is more than 2²⁷ UUIDs in one 119 ns tick.
+        return try! TimestampGenerator.shared.next(representableDate(near: now))
+    }
+
+    /// The nearest date at or before `date` that `timestamp(_:)` stores exactly, clamped to
+    /// the 48-bit millisecond range.
+    static func representableDate(near date: Date) -> Date {
+        let earliest = -Double(referenceOffsetSeconds)
+        let latest = Double(maxMilliseconds) / 1000 - Double(referenceOffsetSeconds) - 1
+        let interval = min(max(date.timeIntervalSinceReferenceDate, earliest), latest)
+        return Date(timeIntervalSinceReferenceDate: (interval * 0x1p23).rounded(.down) * 0x1p-23)
+    }
 }
 
 // MARK: - Generator

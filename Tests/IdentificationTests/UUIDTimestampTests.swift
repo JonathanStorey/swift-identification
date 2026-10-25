@@ -121,6 +121,41 @@ struct UUIDTimestampOrderingTests {
     }
 }
 
+@Suite("UUID.timestamp property")
+struct UUIDTimestampPropertyTests {
+    @Test("Encodes the current moment")
+    func currentMoment() throws {
+        let before = Date.now
+        let id = UUID.timestamp
+        let after = Date.now
+        let date = try #require(Date(from: id))
+        #expect(before <= date && date <= after)
+    }
+
+    @Test("Successive values are distinct")
+    func distinct() {
+        let ids = (0..<10_000).map { _ in UUID.timestamp }
+        #expect(Set(ids).count == ids.count)
+    }
+
+    @Test("Coexists with the function", .timeLimit(.minutes(1)))
+    func coexists() throws {
+        let fromProperty: UUID = UUID.timestamp
+        let fromFunction: UUID = try UUID.timestamp()
+        #expect(fromProperty != fromFunction)
+    }
+
+    @Test("Falls back to a representable date", arguments: [
+        Date(timeIntervalSinceReferenceDate: 1.000_000_001),   // finer than one tick
+        Date(timeIntervalSince1970: -86_400),                   // before 1970
+        Date.distantFuture,
+    ])
+    func fallback(_ date: Date) throws {
+        let representable = UUID.representableDate(near: date)
+        #expect(Date(from: try UUID.timestamp(representable)) == representable)
+    }
+}
+
 @Suite("Date(from:)")
 struct DateFromUUIDTests {
     @Test("Returns nil for a random version 4 UUID")
