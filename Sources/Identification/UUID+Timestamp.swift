@@ -1,23 +1,43 @@
 import Foundation
+import Synchronization
 
 extension UUID {
-    /// How a `Date` is packed into the 74 non-version, non-variant bits of a UUID v7.
+    /// How a `Date` is packed into the 122 non-version, non-variant bits of a UUID v7.
     ///
     /// Every option writes the RFC 9562 48-bit Unix millisecond field, so any v7 parser
     /// reads the correct millisecond. They differ in how much of the remaining space
     /// carries sub-millisecond time instead of randomness.
     public enum TimestampCompatibility: String, Sendable, CaseIterable {
-        /// Strict RFC 9562: 48-bit milliseconds, `rand_a` and `rand_b` fully random (74 random bits).
+        /// Strict RFC 9562: 48-bit milliseconds only.
         case milliseconds
-        /// RFC 9562 Section 6.2 Method 3: `rand_a` holds the fraction of a millisecond
-        /// in 1/4096 steps (about 244 ns). 62 random bits.
+        /// RFC 9562 Section 6.2 Method 3: 48-bit milliseconds plus a 12-bit fraction of the
+        /// millisecond in `rand_a` (1/4096 steps, about 244 ns).
         case subMillisecond
         /// 48-bit milliseconds plus a 14-bit index of the `Date`'s exact binary tick within
-        /// that millisecond (`rand_a` plus the top 2 bits of `rand_b`). 60 random bits.
+        /// that millisecond (`rand_a` plus the top 2 bits of `rand_b`).
         ///
         /// Round-trips a `Date` bit for bit when its value is a multiple of 2⁻²³ seconds
         /// since the reference date, which holds for every `Date` from 2018 onward.
         case lossless
+
+        /// The number of payload bits that carry time.
+        var timeBits: Int {
+            switch self {
+            case .milliseconds: 48
+            case .subMillisecond: 60
+            case .lossless: 62
+            }
+        }
+    }
+
+    /// Whether UUIDs created with identical time bits keep their creation order.
+    public enum TimestampOrdering: Sendable {
+        /// The 28 bits after the time carry a counter. When the time bits repeat, the counter
+        /// increments, so UUIDs from one generator sort in creation order. When the time
+        /// advances, the counter restarts at a random value below 2²⁷.
+        case monotonic
+        /// Every bit after the time is random. UUIDs with identical time bits sort randomly.
+        case unordered
     }
 
     public enum TimestampError: Error, Equatable {
@@ -25,57 +45,103 @@ extension UUID {
         case outOfRange
         /// `.lossless` was requested for a date with precision finer than 2⁻²³ seconds.
         case notLosslesslyRepresentable
+        /// More than 2²⁷ UUIDs shared the same time bits.
+        case counterOverflow
     }
 
     /// Creates a UUID v7 whose time fields encode `date`.
+    ///
+    /// With `.monotonic` ordering this uses ``TimestampGenerator/shared``.
     public static func timestamp(
         _ date: Date = .now,
-        compatibility: TimestampCompatibility = .subMillisecond
+        compatibility: TimestampCompatibility = .subMillisecond,
+        ordering: TimestampOrdering = .monotonic
     ) throws(TimestampError) -> UUID {
-        var generator = SystemRandomNumberGenerator()
-        var randA = UInt16.random(in: 0...0x0FFF, using: &generator)
-        var randB = UInt64.random(in: 0...(1 << 62 - 1), using: &generator)
-        let milliseconds: UInt64
-
-        switch compatibility {
-        case .milliseconds:
-            milliseconds = try Self.splitMilliseconds(date).milliseconds
-        case .subMillisecond:
-            let split = try Self.splitMilliseconds(date)
-            milliseconds = split.milliseconds
-            randA = min(UInt16(split.fraction * 4096), 0x0FFF)
-        case .lossless:
-            let split = try Self.splitTicks(date)
-            milliseconds = split.milliseconds
-            randA = UInt16(split.tickIndex >> 2)
-            randB = (randB & (1 << 60 - 1)) | (UInt64(split.tickIndex & 0b11) << 60)
+        switch ordering {
+        case .monotonic:
+            return try TimestampGenerator.shared.next(date, compatibility: compatibility)
+        case .unordered:
+            let timeField = try Self.timeField(for: date, compatibility: compatibility)
+            return UUID(timeField: timeField, compatibility: compatibility, counter: nil)
         }
-
-        return UUID(milliseconds: milliseconds, randA: randA, randB: randB)
     }
 
     /// Decodes the date from a UUID v7 written with the given compatibility.
     ///
     /// Returns `nil` when the UUID is not version 7 with the RFC 9562 variant.
     public func date(compatibility: TimestampCompatibility) -> Date? {
-        let bytes = withUnsafeBytes(of: uuid) { Array($0) }
-        guard bytes[6] >> 4 == 7, bytes[8] >> 6 == 0b10 else { return nil }
+        let value = bytes.reduce(UInt128(0)) { $0 << 8 | UInt128($1) }
+        let version: UInt128 = value >> 76 & 0xF
+        let variant: UInt128 = value >> 62 & 0b11
+        guard version == 7, variant == 0b10 else { return nil }
 
-        let milliseconds = bytes[0..<6].reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
-        let randA = UInt16(bytes[6] & 0x0F) << 8 | UInt16(bytes[7])
-        let referenceMilliseconds = Int64(milliseconds) - Self.referenceOffsetMilliseconds
+        let high: UInt128 = value >> 80
+        let middle: UInt128 = value >> 64 & 0xFFF
+        let low: UInt128 = value & Self.mask(62)
+        let payload: UInt128 = high << 74 | middle << 62 | low
+        let timeField = UInt64(payload >> (Self.payloadBits - compatibility.timeBits))
 
         switch compatibility {
         case .milliseconds:
+            let referenceMilliseconds = Int64(timeField) - Self.referenceOffsetMilliseconds
             return Date(timeIntervalSinceReferenceDate: Double(referenceMilliseconds) / 1000)
         case .subMillisecond:
-            let fraction = Double(randA) / 4096
+            let referenceMilliseconds = Int64(timeField >> 12) - Self.referenceOffsetMilliseconds
+            let fraction = Double(timeField & 0xFFF) / 4096
             return Date(timeIntervalSinceReferenceDate: (Double(referenceMilliseconds) + fraction) / 1000)
         case .lossless:
-            let tickIndex = Int128(randA) << 2 | Int128(bytes[8] >> 4 & 0b11)
-            let unixTicks = Self.firstTick(ofMillisecond: Int128(milliseconds)) + tickIndex
+            let unixTicks = Self.firstTick(ofMillisecond: Int128(timeField >> 14)) + Int128(timeField & 0x3FFF)
             let referenceTicks = unixTicks - Self.referenceOffsetTicks
             return Date(timeIntervalSinceReferenceDate: Double(referenceTicks) * Self.tick)
+        }
+    }
+
+    private var bytes: [UInt8] {
+        withUnsafeBytes(of: uuid) { Array($0) }
+    }
+}
+
+// MARK: - Generator
+
+extension UUID {
+    /// Creates time-ordered UUID v7 values that keep their creation order.
+    ///
+    /// Each generator remembers the time bits and counter of the last UUID it made for each
+    /// compatibility option. It is safe to share across threads.
+    public final class TimestampGenerator: Sendable {
+        /// The generator used by `UUID.timestamp(_:compatibility:ordering:)`.
+        public static let shared = TimestampGenerator()
+
+        private struct Last {
+            var timeField: UInt64
+            var counter: UInt64
+        }
+
+        private let state = Mutex<[TimestampCompatibility: Last]>([:])
+
+        public init() {}
+
+        /// Creates the next UUID for `date`.
+        ///
+        /// When the time bits match the previous UUID's, the counter increments. When they
+        /// are later, or earlier because the clock moved back, the counter restarts. The
+        /// time is never altered, so `.lossless` stays exact; after a clock step backward,
+        /// new UUIDs sort by their true time.
+        public func next(
+            _ date: Date = .now,
+            compatibility: TimestampCompatibility = .subMillisecond
+        ) throws(TimestampError) -> UUID {
+            let timeField = try UUID.timeField(for: date, compatibility: compatibility)
+            let counter = try state.withLock { (last) throws(TimestampError) -> UInt64 in
+                var counter = UInt64.random(in: 0..<(1 << (UUID.counterBits - 1)))
+                if let previous = last[compatibility], previous.timeField == timeField {
+                    guard previous.counter < (1 << UUID.counterBits) - 1 else { throw .counterOverflow }
+                    counter = previous.counter + 1
+                }
+                last[compatibility] = Last(timeField: timeField, counter: counter)
+                return counter
+            }
+            return UUID(timeField: timeField, compatibility: compatibility, counter: counter)
         }
     }
 }
@@ -93,6 +159,29 @@ extension UUID {
     private static let tick: Double = 0x1p-23
     private static let ticksPerSecondShift = 23
     private static let referenceOffsetTicks = Int128(referenceOffsetSeconds) << ticksPerSecondShift
+
+    /// Bits of a UUID that are neither version nor variant.
+    fileprivate static let payloadBits = 122
+    fileprivate static let counterBits = 28
+
+    /// A value with the low `bits` bits set.
+    fileprivate static func mask(_ bits: Int) -> UInt128 {
+        (1 << bits) - 1
+    }
+
+    /// The time bits for `date`, right-aligned.
+    fileprivate static func timeField(for date: Date, compatibility: TimestampCompatibility) throws(TimestampError) -> UInt64 {
+        switch compatibility {
+        case .milliseconds:
+            return try splitMilliseconds(date).milliseconds
+        case .subMillisecond:
+            let split = try splitMilliseconds(date)
+            return split.milliseconds << 12 | UInt64(min(UInt16(split.fraction * 4096), 0x0FFF))
+        case .lossless:
+            let split = try splitTicks(date)
+            return split.milliseconds << 14 | UInt64(split.tickIndex)
+        }
+    }
 
     /// Splits a date into whole Unix milliseconds (floored) and the fraction of the next millisecond.
     private static func splitMilliseconds(_ date: Date) throws(TimestampError) -> (milliseconds: UInt64, fraction: Double) {
@@ -133,24 +222,28 @@ extension UUID {
         ((milliseconds << ticksPerSecondShift) + 999) / 1000
     }
 
-    private init(milliseconds: UInt64, randA: UInt16, randB: UInt64) {
+    /// Lays out the 122-bit payload as time, then the counter if any, then random bits,
+    /// and inserts the version and variant.
+    fileprivate init(timeField: UInt64, compatibility: TimestampCompatibility, counter: UInt64?) {
+        var generator = SystemRandomNumberGenerator()
+        let random = UInt128(generator.next() as UInt64) << 64 | UInt128(generator.next() as UInt64)
+
+        let randomBits = Self.payloadBits - compatibility.timeBits
+        var payload: UInt128 = UInt128(timeField) << randomBits | random & Self.mask(randomBits)
+        if let counter {
+            let counterShift = randomBits - Self.counterBits
+            let counterMask: UInt128 = Self.mask(Self.counterBits) << counterShift
+            payload = payload & ~counterMask | UInt128(counter) << counterShift
+        }
+
+        let high: UInt128 = payload >> 74
+        let middle: UInt128 = payload >> 62 & 0xFFF
+        let low: UInt128 = payload & Self.mask(62)
+        let value: UInt128 = high << 80 | 0x7 << 76 | middle << 64 | 0b10 << 62 | low
+        let byte = { (index: Int) in UInt8(truncatingIfNeeded: value >> (120 - 8 * index)) }
         self.init(uuid: (
-            UInt8(truncatingIfNeeded: milliseconds >> 40),
-            UInt8(truncatingIfNeeded: milliseconds >> 32),
-            UInt8(truncatingIfNeeded: milliseconds >> 24),
-            UInt8(truncatingIfNeeded: milliseconds >> 16),
-            UInt8(truncatingIfNeeded: milliseconds >> 8),
-            UInt8(truncatingIfNeeded: milliseconds),
-            0x70 | UInt8(truncatingIfNeeded: randA >> 8 & 0x0F),
-            UInt8(truncatingIfNeeded: randA),
-            0x80 | UInt8(truncatingIfNeeded: randB >> 56 & 0x3F),
-            UInt8(truncatingIfNeeded: randB >> 48),
-            UInt8(truncatingIfNeeded: randB >> 40),
-            UInt8(truncatingIfNeeded: randB >> 32),
-            UInt8(truncatingIfNeeded: randB >> 24),
-            UInt8(truncatingIfNeeded: randB >> 16),
-            UInt8(truncatingIfNeeded: randB >> 8),
-            UInt8(truncatingIfNeeded: randB)
+            byte(0), byte(1), byte(2), byte(3), byte(4), byte(5), byte(6), byte(7),
+            byte(8), byte(9), byte(10), byte(11), byte(12), byte(13), byte(14), byte(15)
         ))
     }
 }

@@ -116,7 +116,7 @@ struct UUIDTimestampOrderingTests {
     /// Generates IDs for dates that advance by `step` seconds each iteration.
     func ids(step: TimeInterval, compatibility: Compatibility, count: Int = 10_000) throws -> [UUID] {
         try (0..<count).map { index in
-            try UUID.timestamp(sampleDate.addingTimeInterval(Double(index) * step), compatibility: compatibility)
+            try UUID.timestamp(sampleDate.addingTimeInterval(Double(index) * step), compatibility: compatibility, ordering: .unordered)
         }
     }
 
@@ -137,7 +137,7 @@ struct UUIDTimestampOrderingTests {
         #expect(try outOfOrderCount(ids(step: tick, compatibility: .subMillisecond)) > 0)
     }
 
-    @Test("Ordering of IDs created in a tight loop with Date.now", arguments: Compatibility.allCases)
+    @Test("Unordered IDs created in a tight loop with Date.now", arguments: Compatibility.allCases)
     func tightLoop(_ compatibility: Compatibility) throws {
         let count = 100_000
         var ids: [UUID] = []
@@ -147,7 +147,7 @@ struct UUIDTimestampOrderingTests {
         for _ in 0..<count {
             let now = Date.now
             dates.append(now)
-            ids.append(try UUID.timestamp(now, compatibility: compatibility))
+            ids.append(try UUID.timestamp(now, compatibility: compatibility, ordering: .unordered))
         }
         let repeatedDates = zip(dates, dates.dropFirst()).count { $0 == $1 }
         let outOfOrder = outOfOrderCount(ids)
@@ -159,9 +159,62 @@ struct UUIDTimestampOrderingTests {
         }
     }
 
-    @Test("Identical dates lose order in every option", arguments: Compatibility.allCases)
+    @Test("Identical dates lose order in every option when unordered", arguments: Compatibility.allCases)
     func identicalDates(_ compatibility: Compatibility) throws {
-        let ids = try (0..<1_000).map { _ in try UUID.timestamp(sampleDate, compatibility: compatibility) }
+        let ids = try (0..<1_000).map { _ in try UUID.timestamp(sampleDate, compatibility: compatibility, ordering: .unordered) }
         #expect(outOfOrderCount(ids) > 0)
+    }
+}
+
+@Suite("Monotonic ordering")
+struct UUIDTimestampMonotonicTests {
+    @Test("Identical dates stay ordered", arguments: Compatibility.allCases)
+    func identicalDates(_ compatibility: Compatibility) throws {
+        let generator = UUID.TimestampGenerator()
+        let ids = try (0..<100_000).map { _ in try generator.next(sampleDate, compatibility: compatibility) }
+        #expect(outOfOrderCount(ids) == 0)
+    }
+
+    @Test("IDs created in a tight loop with Date.now stay ordered", arguments: Compatibility.allCases)
+    func tightLoop(_ compatibility: Compatibility) throws {
+        let generator = UUID.TimestampGenerator()
+        let ids = try (0..<100_000).map { _ in try generator.next(.now, compatibility: compatibility) }
+        #expect(outOfOrderCount(ids) == 0)
+    }
+
+    @Test("Lossless stays exact while the counter runs")
+    func losslessStaysExact() throws {
+        let generator = UUID.TimestampGenerator()
+        for _ in 0..<10_000 {
+            let now = Date.now
+            #expect(try generator.next(now, compatibility: .lossless).date(compatibility: .lossless) == now)
+        }
+        for _ in 0..<1_000 {
+            #expect(try generator.next(sampleDate, compatibility: .lossless).date(compatibility: .lossless) == sampleDate)
+        }
+    }
+
+    @Test("A clock step backward keeps the true time")
+    func clockStepBackward() throws {
+        let generator = UUID.TimestampGenerator()
+        let later = sampleDate.addingTimeInterval(1)
+        let first = try generator.next(later, compatibility: .lossless)
+        let second = try generator.next(sampleDate, compatibility: .lossless)
+        #expect(second.date(compatibility: .lossless) == sampleDate)
+        #expect(second.uuidString < first.uuidString)
+    }
+
+    @Test("Concurrent use produces unique IDs")
+    func concurrentUnique() async throws {
+        let generator = UUID.TimestampGenerator()
+        let ids = try await withThrowingTaskGroup(of: [UUID].self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    try (0..<10_000).map { _ in try generator.next(compatibility: .lossless) }
+                }
+            }
+            return try await group.reduce(into: []) { $0 += $1 }
+        }
+        #expect(Set(ids).count == 80_000)
     }
 }
