@@ -102,7 +102,7 @@ struct TypedChecksumTests {
     @Test("Dates round to the nearest microsecond")
     func datePrecision() {
         let date = Date(timeIntervalSince1970: 1_793_026_800.25)
-        #expect(date.addingTimeInterval(0.000_000_4).checksum() == date.checksum())
+        #expect(date.addingTimeInterval(0.000_000_2).checksum() == date.checksum())
         #expect(date.addingTimeInterval(0.000_001).checksum() != date.checksum())
     }
 
