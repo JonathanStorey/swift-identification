@@ -4,32 +4,41 @@ import Foundation
 ///
 /// Produce one with `value.checksum()` or a `Digester`. It matches Python byte for byte:
 /// `hashlib.sha256(data).digest()[:16]`. It is a fingerprint, not a secret or a signature.
-public struct Checksum: Hashable, Sendable, CustomStringConvertible, Codable {
-    /// The 16 checksum bytes.
-    public let bytes: [UInt8]
+///
+/// The raw value is those 16 bytes read as a big-endian integer, like Python's
+/// `int.from_bytes(digest, "big")`, so a checksum is 16 bytes inline with no allocation.
+public struct Checksum: RawRepresentable, Hashable, Sendable, CustomStringConvertible, Codable {
+    /// The checksum bytes as a big-endian integer.
+    public let rawValue: UInt128
+
+    /// Creates the checksum whose bytes are `rawValue` in big-endian order.
+    public init(rawValue: UInt128) {
+        self.rawValue = rawValue
+    }
 
     init(sha256 digest: [UInt8]) {
-        bytes = Array(digest.prefix(16))
+        self.init(bigEndianBytes: digest.prefix(16))
+    }
+
+    private init(bigEndianBytes bytes: some Sequence<UInt8>) {
+        rawValue = bytes.reduce(0) { $0 << 8 | UInt128($1) }
     }
 
     /// Restores a checksum from its 32 hexadecimal digits, in either case.
     public init?(hex: String) {
         let digits = Array(hex.utf8)
         guard digits.count == 32 else { return nil }
-        var bytes: [UInt8] = []
-        bytes.reserveCapacity(16)
-        for index in stride(from: 0, to: 32, by: 2) {
-            guard let high = Self.value(ofHexDigit: digits[index]),
-                  let low = Self.value(ofHexDigit: digits[index + 1])
-            else { return nil }
-            bytes.append(high << 4 | low)
+        var rawValue: UInt128 = 0
+        for digit in digits {
+            guard let value = Self.value(ofHexDigit: digit) else { return nil }
+            rawValue = rawValue << 4 | UInt128(value)
         }
-        self.bytes = bytes
+        self.init(rawValue: rawValue)
     }
 
     /// Restores a checksum from the `UUID` its `uuid` property produced.
     public init(uuid: UUID) {
-        bytes = withUnsafeBytes(of: uuid.uuid) { Array($0) }
+        self = withUnsafeBytes(of: uuid.uuid) { Checksum(bigEndianBytes: $0) }
     }
 
     /// Decodes a checksum stored as its hexadecimal string.
@@ -59,9 +68,15 @@ public struct Checksum: Hashable, Sendable, CustomStringConvertible, Codable {
         }
     }
 
+    /// The 16 checksum bytes, like Python's `digest[:16]`.
+    public var bytes: [UInt8] {
+        (0..<16).map { UInt8(truncatingIfNeeded: rawValue >> (120 - 8 * $0)) }
+    }
+
     /// The checksum as 32 lowercase hexadecimal digits, like Python's `.hex()`.
     public var hex: String {
-        bytes.map { String(format: "%02x", $0) }.joined()
+        let digits = String(rawValue, radix: 16)
+        return String(repeating: "0", count: 32 - digits.count) + digits
     }
 
     /// The checksum bytes stored unchanged in a `UUID`, like Python's `uuid.UUID(bytes=digest)`.
@@ -70,7 +85,8 @@ public struct Checksum: Hashable, Sendable, CustomStringConvertible, Codable {
     /// variant fields hold hash bits. For a valid version 8 UUID, which gives up 6 bits, use
     /// `UUID(name:namespace:hash: .sha256)` instead. The two will not be equal.
     public var uuid: UUID {
-        UUID(uuid: (
+        let bytes = bytes
+        return UUID(uuid: (
             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
             bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
         ))

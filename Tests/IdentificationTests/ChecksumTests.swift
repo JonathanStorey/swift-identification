@@ -109,6 +109,20 @@ struct TypedChecksumTests {
         #expect(date.addingTimeInterval(0.000_001).checksum(using: digester) != date.checksum(using: digester))
     }
 
+    @Test("Stores 16 bytes inline as a big-endian UInt128")
+    func rawValue() {
+        #expect(MemoryLayout<Checksum>.size == 16)
+        let checksum = "abc".checksum()
+        // int.from_bytes(bytes.fromhex("a6d89baf01ac02637da09835b28485b2"), "big")
+        #expect(checksum.rawValue == 221_776_541_060_673_995_205_777_442_838_510_077_362)
+        #expect(checksum.rawValue == 0xA6D8_9BAF_01AC_0263_7DA0_9835_B284_85B2)
+        #expect(Checksum(rawValue: checksum.rawValue) == checksum)
+        #expect(checksum.bytes.first == 0xA6)
+        #expect(checksum.bytes.last == 0xB2)
+        #expect(Checksum(rawValue: 1).hex == "00000000000000000000000000000001")
+        #expect(Checksum(rawValue: 1).bytes == Array(repeating: 0, count: 15) + [1])
+    }
+
     @Test("Restores from hex, from its UUID and from Codable")
     func restore() throws {
         let checksum = "abc".checksum()
