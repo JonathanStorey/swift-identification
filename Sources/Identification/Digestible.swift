@@ -41,57 +41,85 @@ extension Digestible {
 
 // MARK: - Standard library and Foundation
 
-/// UTF-8, normalized as the digester specifies. Python: `s.encode()`.
+// Each conformance names its Python equivalent for both encodings. Typed values match
+// `cbor2.dumps(v, canonical=True)` and bytes values match `hashlib` input.
+
+/// Typed: a CBOR text string. Bytes: UTF-8, like `s.encode()`. Both normalize as the digester
+/// specifies.
 extension String: Digestible {
     public func digest(into digester: inout Digester) {
-        switch digester.normalization {
-        case .none: digester.combine(bytes: utf8)
-        case .nfc: digester.combine(bytes: precomposedStringWithCanonicalMapping.utf8)
+        let bytes = switch digester.normalization {
+        case .none: Array(utf8)
+        case .nfc: Array(precomposedStringWithCanonicalMapping.utf8)
         }
+        if digester.encoding == .typed {
+            digester.appendHead(.textString, UInt64(bytes.count))
+        }
+        digester.append(bytes)
     }
 }
 
-/// The same bytes as the equivalent `String`.
+/// The same as the equivalent `String`.
 extension Substring: Digestible {
     public func digest(into digester: inout Digester) {
         String(self).digest(into: &digester)
     }
 }
 
-/// The bytes as given. Python: `b`.
+/// Typed: a CBOR byte string, like Python `bytes`. Bytes: the bytes as given.
 extension Data: Digestible {
     public func digest(into digester: inout Digester) {
         digester.combine(bytes: self)
     }
 }
 
-/// The 16 bytes in RFC order. Python: `u.bytes`.
+/// Typed: CBOR tag 37 around the 16 bytes, as `cbor2` encodes `uuid.UUID`. Bytes: `u.bytes`.
 extension UUID: Digestible {
     public func digest(into digester: inout Digester) {
-        withUnsafeBytes(of: uuid) { digester.combine(bytes: $0) }
+        if digester.encoding == .typed {
+            digester.appendHead(.tag, 37)
+            digester.appendHead(.byteString, 16)
+        }
+        withUnsafeBytes(of: uuid) { digester.append($0) }
     }
 }
 
-/// Each element in order, with no separators, so `[UInt8]` digests as its raw bytes.
+/// Typed: a CBOR array, like a Python `list`. Bytes: each element in order, with no separators.
+///
+/// `[UInt8]` is the exception: it is a byte string, the same as `Data`.
 extension Array: Digestible where Element: Digestible {
     public func digest(into digester: inout Digester) {
+        if let bytes = self as? [UInt8] {
+            digester.combine(bytes: bytes)
+            return
+        }
+        if digester.encoding == .typed {
+            digester.appendHead(.array, UInt64(count))
+        }
         for element in self {
             digester.combine(element)
         }
     }
 }
 
-/// One byte, 1 or 0. Python: `bytes([b])`.
+/// Typed: CBOR `true` or `false`. Bytes: one byte, like `bytes([b])`.
 extension Bool: Digestible {
     public func digest(into digester: inout Digester) {
-        digester.combine(bytes: [UInt8(self ? 1 : 0)])
+        switch digester.encoding {
+        case .typed: digester.append([UInt8(self ? 0xF5 : 0xF4)])
+        case .bytes: digester.append([UInt8(self ? 1 : 0)])
+        }
     }
 }
 
-/// Big-endian, at the type's own width. Python: `n.to_bytes(width, "big", signed=...)`.
+/// Typed: a CBOR integer, by value. Bytes: big-endian at the type's own width, like
+/// `n.to_bytes(width, "big", signed=...)`.
 extension Digestible where Self: FixedWidthInteger {
     public func digest(into digester: inout Digester) {
-        withUnsafeBytes(of: bigEndian) { digester.combine(bytes: $0) }
+        switch digester.encoding {
+        case .typed: digester.appendInteger(self)
+        case .bytes: digester.appendBigEndian(self)
+        }
     }
 }
 
@@ -104,30 +132,66 @@ extension UInt16: Digestible {}
 extension UInt32: Digestible {}
 extension UInt64: Digestible {}
 
-/// Always 8 bytes, as `Int64`, so the checksum is the same on 32-bit platforms.
+/// As `Int64`, so the bytes encoding is always 8 bytes, even on 32-bit platforms.
 extension Int: Digestible {
     public func digest(into digester: inout Digester) {
         digester.combine(Int64(self))
     }
 }
 
-/// Always 8 bytes, as `UInt64`, so the checksum is the same on 32-bit platforms.
+/// As `UInt64`, so the bytes encoding is always 8 bytes, even on 32-bit platforms.
 extension UInt: Digestible {
     public func digest(into digester: inout Digester) {
         digester.combine(UInt64(self))
     }
 }
 
-/// IEEE 754, big-endian. Python: `struct.pack(">d", x)`. `0.0` and `-0.0` differ.
+/// Typed: the shortest CBOR float that keeps the exact value, like a Python `float`.
+/// Bytes: IEEE 754 big-endian, like `struct.pack(">d", x)`. `0.0` and `-0.0` differ.
 extension Double: Digestible {
     public func digest(into digester: inout Digester) {
-        digester.combine(bitPattern)
+        switch digester.encoding {
+        case .typed: digester.appendFloat(self)
+        case .bytes: digester.appendBigEndian(bitPattern)
+        }
     }
 }
 
-/// IEEE 754, big-endian. Python: `struct.pack(">f", x)`. `0.0` and `-0.0` differ.
+/// Typed: the same as the equal `Double`. Bytes: IEEE 754 big-endian, like
+/// `struct.pack(">f", x)`. `0.0` and `-0.0` differ.
 extension Float: Digestible {
     public func digest(into digester: inout Digester) {
-        digester.combine(bitPattern)
+        switch digester.encoding {
+        case .typed: digester.appendFloat(self)
+        case .bytes: digester.appendBigEndian(bitPattern)
+        }
+    }
+}
+
+/// Rounded to the nearest microsecond, the precision of Python's `datetime`.
+///
+/// Typed: CBOR tag 1 around the seconds since 1970, an integer when whole and otherwise a
+/// float, like `cbor2.dumps(dt, canonical=True, datetime_as_timestamp=True)` for a UTC-aware
+/// `dt`. Bytes: the microseconds since 1970 as 8 big-endian bytes, like
+/// `((dt - epoch) // timedelta(microseconds=1)).to_bytes(8, "big", signed=True)`.
+extension Date: Digestible {
+    public func digest(into digester: inout Digester) {
+        let microseconds = Int64((timeIntervalSince1970 * 1_000_000).rounded())
+        switch digester.encoding {
+        case .typed:
+            var (seconds, fraction) = microseconds.quotientAndRemainder(dividingBy: 1_000_000)
+            if fraction < 0 {
+                seconds -= 1
+                fraction += 1_000_000
+            }
+            digester.appendHead(.tag, 1)
+            if fraction == 0 {
+                digester.appendInteger(seconds)
+            } else {
+                digester.appendFloat(Double(seconds) + Double(fraction) / 1_000_000)
+            }
+        case .bytes:
+            digester.appendBigEndian(microseconds)
+        }
     }
 }

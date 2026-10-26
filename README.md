@@ -38,37 +38,17 @@ import Identification
 
 ### Checksums
 
-A `Checksum` is the first 16 bytes (128 bits) of SHA-256, so it is the same length as a UUID and
-matches Python byte for byte. Any `Digestible` value produces one, the way any `Hashable` value
-produces a hash value.
+A `Checksum` is the first 16 bytes (128 bits) of SHA-256, so it is the same length as a UUID.
+Any `Digestible` value produces one, the way any `Hashable` value produces a hash value, and
+Python can reproduce it byte for byte.
 
 ```swift
 let checksum = "hello world".checksum()
-checksum.hex    // "b94d27b9934d3e08a52e52d7da7dabfa"
-checksum.uuid   // B94D27B9-934D-3E08-A52E-52D7DA7DABFA
-```
-
-```python
-import hashlib, uuid
-digest = hashlib.sha256("hello world".encode()).digest()[:16]
-digest.hex()              # 'b94d27b9934d3e08a52e52d7da7dabfa'
-uuid.UUID(bytes=digest)   # UUID('b94d27b9-934d-3e08-a52e-52d7da7dabfa')
+checksum.hex    // "a6dc1f38a111301a02f8c66046712cd9"
+checksum.uuid   // A6DC1F38-A111-301A-02F8-C66046712CD9
 ```
 
 `checksum.uuid` keeps all 128 bits, so it is UUID-shaped but not an RFC 9562 UUID.
-
-Each built-in conformance has a one-line Python equivalent:
-
-| Swift | Bytes | Python |
-| --- | --- | --- |
-| `String`, `Substring` | UTF-8 as given | `s.encode()` |
-| `Data`, `[UInt8]` | as given | `b` |
-| `UUID` | 16 bytes | `u.bytes` |
-| `Int8` … `UInt64` | big-endian, own width | `n.to_bytes(width, "big", signed=...)` |
-| `Int`, `UInt` | big-endian, always 8 bytes | `n.to_bytes(8, "big", signed=...)` |
-| `Double`, `Float` | IEEE 754, big-endian | `struct.pack(">d", x)`, `">f"` |
-| `Bool` | one byte | `bytes([b])` |
-| `[Element]` | each element in order | one `update` per element |
 
 Conform your own types like `Hashable`:
 
@@ -84,14 +64,56 @@ struct Account: Digestible {
 }
 ```
 
-A `Digester` appends bytes with no separators, like successive `h.update(...)` calls on one
-`hashlib.sha256()`, so `["ab", "c"]` and `["a", "bc"]` match. Combine a length first when that
-matters. `Digester(normalization: .nfc)` hashes strings in NFC (Python:
-`unicodedata.normalize("NFC", s)`) for text that may arrive precomposed or decomposed:
+#### Encodings
+
+A `Digester` turns each combined value into bytes in one of two ways.
+
+**`.typed`** (the default) is deterministic CBOR (RFC 8949 Section 4.2). Every value carries
+its type and length, so `"5"` differs from `5` and `["ab", "c"]` from `["a", "bc"]`. Numbers
+are encoded by value, so `Int32(5)` equals `Int(5)` and `Float(1.5)` equals `1.5`. In Python,
+with [`cbor2`](https://pypi.org/project/cbor2/):
+
+```python
+import cbor2, hashlib
+
+def checksum(*values):
+    data = b"".join(cbor2.dumps(v, canonical=True, datetime_as_timestamp=True) for v in values)
+    return hashlib.sha256(data).digest()[:16]
+
+checksum("hello world").hex()   # 'a6dc1f38a111301a02f8c66046712cd9'
+```
+
+Each `combine` call is one argument, so `Account(id: id, name: name).checksum()` equals
+`checksum(id, name)`.
+
+**`.bytes`** appends each value's plain bytes with no separators, like successive
+`h.update(...)` calls. Use it to match a checksum of raw bytes computed anywhere else:
 
 ```swift
-let checksum = name.checksum(using: Digester(normalization: .nfc))
+"hello world".checksum(using: Digester(encoding: .bytes)).hex  // "b94d27b9934d3e08a52e52d7da7dabfa"
 ```
+
+```python
+hashlib.sha256("hello world".encode()).digest()[:16].hex()     # 'b94d27b9934d3e08a52e52d7da7dabfa'
+```
+
+| Swift | Python for `.typed` | Python bytes for `.bytes` |
+| --- | --- | --- |
+| `String`, `Substring` | `str` | `s.encode()` |
+| `Data`, `[UInt8]` | `bytes` | `b` |
+| `UUID` | `uuid.UUID` (CBOR tag 37) | `u.bytes` |
+| `Int8` … `UInt64` | `int` | `n.to_bytes(width, "big", signed=...)` |
+| `Int`, `UInt` | `int` | `n.to_bytes(8, "big", signed=...)` |
+| `Double`, `Float` | `float` | `struct.pack(">d", x)`, `">f"` |
+| `Bool` | `bool` | `bytes([b])` |
+| `Date` | UTC-aware `datetime` (CBOR tag 1) | microseconds since 1970 as 8 big-endian bytes |
+| `[Element]` | `list` | each element in order |
+
+Floats follow IEEE 754: `0.0` and `-0.0` differ, and every NaN is the same. Dates are rounded to
+the nearest microsecond, the precision of Python's `datetime`, so finer differences are ignored.
+
+`Digester(normalization: .nfc)` hashes strings in NFC (Python:
+`unicodedata.normalize("NFC", s)`) for text that may arrive precomposed or decomposed.
 
 ### Name-based UUIDs
 
