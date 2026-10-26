@@ -106,11 +106,27 @@ hashlib.sha256("hello world".encode()).digest()[:16].hex()     # 'b94d27b9934d3e
 | `Int`, `UInt` | `int` | `n.to_bytes(8, "big", signed=...)` |
 | `Double`, `Float` | `float` | `struct.pack(">d", x)`, `">f"` |
 | `Bool` | `bool` | `bytes([b])` |
-| `Date` | UTC-aware `datetime` (CBOR tag 1) | microseconds since 1970 as 8 big-endian bytes |
+| `Date` | see [Dates](#dates) | see [Dates](#dates) |
 | `[Element]` | `list` | each element in order |
 
-Floats follow IEEE 754: `0.0` and `-0.0` differ, and every NaN is the same. Dates are rounded to
-the nearest microsecond, the precision of Python's `datetime`, so finer differences are ignored.
+Floats follow IEEE 754: `0.0` and `-0.0` differ, and every NaN is the same.
+
+#### Dates
+
+`dateDigestingStrategy` borrows its names from `JSONEncoder.DateEncodingStrategy`:
+
+| Strategy | Precision | Python for `.typed` |
+| --- | --- | --- |
+| `.microsecondsSince1970` (default) | nearest microsecond, like `datetime` | `datetime` (CBOR tag 1) |
+| `.millisecondsSince1970` | nearest millisecond | `datetime` with whole milliseconds |
+| `.secondsSince1970` | the `Double` since 1970 | `cbor2.CBORTag(1, t)` |
+| `.deferredToDate` | every distinct `Date`: its `Double` since 2001 | `float` |
+| `.custom { date, digester in ... }` | whatever the closure combines | |
+
+```swift
+let exact = Digester(dateDigestingStrategy: .deferredToDate)
+date.checksum(using: exact)
+```
 
 `Digester(normalization: .nfc)` hashes strings in NFC (Python:
 `unicodedata.normalize("NFC", s)`) for text that may arrive precomposed or decomposed.

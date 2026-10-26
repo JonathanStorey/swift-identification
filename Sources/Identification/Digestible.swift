@@ -168,30 +168,48 @@ extension Float: Digestible {
     }
 }
 
-/// Rounded to the nearest microsecond, the precision of Python's `datetime`.
-///
-/// Typed: CBOR tag 1 around the seconds since 1970, an integer when whole and otherwise a
-/// float, like `cbor2.dumps(dt, canonical=True, datetime_as_timestamp=True)` for a UTC-aware
-/// `dt`. Bytes: the microseconds since 1970 as 8 big-endian bytes, like
-/// `((dt - epoch) // timedelta(microseconds=1)).to_bytes(8, "big", signed=True)`.
+/// As the digester's `dateDigestingStrategy` specifies.
 extension Date: Digestible {
     public func digest(into digester: inout Digester) {
-        let microseconds = Int64((timeIntervalSince1970 * 1_000_000).rounded())
+        switch digester.dateDigestingStrategy {
+        case .deferredToDate:
+            digester.combine(timeIntervalSinceReferenceDate)
+        case .secondsSince1970:
+            switch digester.encoding {
+            case .typed:
+                digester.appendHead(.tag, 1)
+                digester.appendFloat(timeIntervalSince1970)
+            case .bytes:
+                digester.appendBigEndian(timeIntervalSince1970.bitPattern)
+            }
+        case .millisecondsSince1970:
+            digestRounded(into: &digester, unitsPerSecond: 1_000)
+        case .microsecondsSince1970:
+            digestRounded(into: &digester, unitsPerSecond: 1_000_000)
+        case .custom(let closure):
+            closure(self, &digester)
+        }
+    }
+
+    private func digestRounded(into digester: inout Digester, unitsPerSecond: Int64) {
+        let units = Int64((timeIntervalSince1970 * Double(unitsPerSecond)).rounded())
         switch digester.encoding {
         case .typed:
-            var (seconds, fraction) = microseconds.quotientAndRemainder(dividingBy: 1_000_000)
+            // The same arithmetic as cbor2: whole seconds, plus microseconds / 1_000_000.
+            var (seconds, fraction) = units.quotientAndRemainder(dividingBy: unitsPerSecond)
             if fraction < 0 {
                 seconds -= 1
-                fraction += 1_000_000
+                fraction += unitsPerSecond
             }
             digester.appendHead(.tag, 1)
             if fraction == 0 {
                 digester.appendInteger(seconds)
             } else {
-                digester.appendFloat(Double(seconds) + Double(fraction) / 1_000_000)
+                let microseconds = fraction * (1_000_000 / unitsPerSecond)
+                digester.appendFloat(Double(seconds) + Double(microseconds) / 1_000_000)
             }
         case .bytes:
-            digester.appendBigEndian(microseconds)
+            digester.appendBigEndian(units)
         }
     }
 }

@@ -190,6 +190,65 @@ struct BytesChecksumTests {
     }
 }
 
+@Suite("Date digesting strategies")
+struct DateDigestingStrategyTests {
+    // 2026-10-26T15:00:00.25Z
+    let date = Date(timeIntervalSince1970: 1_793_026_800.25)
+    // One Double step later: a different Date with the same seconds since 1970.
+    var nextDate: Date { Date(timeIntervalSinceReferenceDate: date.timeIntervalSinceReferenceDate.nextUp) }
+
+    func checksum(
+        _ date: Date, _ strategy: Digester.DateDigestingStrategy, _ encoding: Digester.Encoding = .typed
+    ) -> String {
+        date.checksum(using: Digester(encoding: encoding, dateDigestingStrategy: strategy)).hex
+    }
+
+    @Test("Deferred to Date matches the Double since 2001 and tells every Date apart")
+    func deferredToDate() {
+        // cbor2.dumps(814719600.25, canonical=True) and struct.pack(">d", 814719600.25)
+        #expect(checksum(date, .deferredToDate) == "26de88594df6fce2fc537e68cc3f1d6f")
+        #expect(checksum(date, .deferredToDate, .bytes) == "07d64cc6bc1def487066c6903df8a9f7")
+        // math.nextafter(814719600.25, math.inf)
+        #expect(checksum(nextDate, .deferredToDate) == "f69a844180d93a214e9c2e9ad2e73cb6")
+        #expect(checksum(nextDate, .deferredToDate, .bytes) == "648eb99f82937e4dec7ddfd44bf4e391")
+    }
+
+    @Test("Seconds since 1970 matches CBOR tag 1 around a float")
+    func secondsSince1970() {
+        // cbor2.dumps(cbor2.CBORTag(1, 1793026800.25), canonical=True)
+        #expect(checksum(date, .secondsSince1970) == "c9350d30e520c8f74781b21770aba818")
+        // struct.pack(">d", 1793026800.25)
+        #expect(checksum(date, .secondsSince1970, .bytes) == "6cd5b1c5c3cf21923f916906395100f1")
+        // A whole second is still a float: cbor2.CBORTag(1, 1793026800.0)
+        let whole = Date(timeIntervalSince1970: 1_793_026_800)
+        #expect(checksum(whole, .secondsSince1970) == "67e98b31b4b8d41f6eb110014b2117fa")
+        // Dates closer than one Double step since 1970 merge.
+        #expect(checksum(nextDate, .secondsSince1970) == checksum(date, .secondsSince1970))
+    }
+
+    @Test("Milliseconds since 1970 rounds like a datetime with whole milliseconds")
+    func millisecondsSince1970() {
+        // 2026-10-26T15:00:00.123Z, and (1793026800123).to_bytes(8, "big", signed=True)
+        let date = Date(timeIntervalSince1970: 1_793_026_800.123_4)
+        #expect(checksum(date, .millisecondsSince1970) == "76cb69258db5b8b92b9da6d065ef8d25")
+        #expect(checksum(date, .millisecondsSince1970, .bytes) == "e272a56f38c36873a9b51c38bac9ad85")
+    }
+
+    @Test("Microseconds since 1970 is the default")
+    func microsecondsSince1970() {
+        #expect(checksum(date, .microsecondsSince1970) == date.checksum().hex)
+        #expect(checksum(nextDate, .microsecondsSince1970) == checksum(date, .microsecondsSince1970))
+    }
+
+    @Test("Custom digests with the closure")
+    func custom() {
+        let strategy = Digester.DateDigestingStrategy.custom { date, digester in
+            digester.combine(date.ISO8601Format())
+        }
+        #expect(checksum(date, strategy) == "2026-10-26T15:00:00Z".checksum().hex)
+    }
+}
+
 @Suite("Digester")
 struct DigesterTests {
     struct Record: Digestible {

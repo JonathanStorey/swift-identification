@@ -1,3 +1,5 @@
+import Foundation
+
 /// Feeds values into a `Checksum`, the way `Hasher` feeds a hash value.
 ///
 /// `combine` appends each value's encoding to a byte stream and `finalize()` hashes it, like
@@ -28,8 +30,35 @@ public struct Digester: Sendable {
         case nfc
     }
 
+    /// How dates are turned into bytes, named after `JSONEncoder.DateEncodingStrategy`.
+    public enum DateDigestingStrategy: Sendable {
+        /// Date's own representation, the `Double` seconds since 2001-01-01, so every
+        /// distinct `Date` has a distinct checksum. Typed: a CBOR float, like
+        /// `cbor2.dumps(t)`. Bytes: `struct.pack(">d", t)`.
+        case deferredToDate
+        /// The `Double` seconds since 1970. Converting from 2001 can merge dates less than one
+        /// `Double` step apart. Typed: CBOR tag 1 around a float, like
+        /// `cbor2.dumps(cbor2.CBORTag(1, t))`. Bytes: `struct.pack(">d", t)`.
+        case secondsSince1970
+        /// Rounded to the nearest millisecond. Typed: as `.microsecondsSince1970`. Bytes: the
+        /// milliseconds since 1970 as 8 big-endian bytes.
+        case millisecondsSince1970
+        /// Rounded to the nearest microsecond, the precision of Python's `datetime`.
+        ///
+        /// Typed: CBOR tag 1 around the seconds since 1970, an integer when whole and otherwise
+        /// a float, like `cbor2.dumps(dt, canonical=True, datetime_as_timestamp=True)` for a
+        /// UTC-aware `dt`. Bytes: the microseconds since 1970 as 8 big-endian bytes, like
+        /// `((dt - epoch) // timedelta(microseconds=1)).to_bytes(8, "big", signed=True)`.
+        case microsecondsSince1970
+        /// Digests each date with the closure, for example as an ISO 8601 string.
+        case custom(@Sendable (Date, inout Digester) -> Void)
+    }
+
     /// How values combined into this digester are turned into bytes.
     public let encoding: Encoding
+
+    /// How dates combined into this digester are turned into bytes.
+    public let dateDigestingStrategy: DateDigestingStrategy
 
     /// How strings combined into this digester are turned into bytes.
     public let normalization: Normalization
@@ -37,9 +66,14 @@ public struct Digester: Sendable {
     private var message: [UInt8] = []
 
     /// Creates an empty digester.
-    public init(encoding: Encoding = .typed, normalization: Normalization = .none) {
+    public init(
+        encoding: Encoding = .typed,
+        normalization: Normalization = .none,
+        dateDigestingStrategy: DateDigestingStrategy = .microsecondsSince1970
+    ) {
         self.encoding = encoding
         self.normalization = normalization
+        self.dateDigestingStrategy = dateDigestingStrategy
     }
 
     /// Adds `value` to the digester.
