@@ -21,13 +21,14 @@ public struct Digester: Sendable {
         case bytes
     }
 
-    /// How strings are turned into bytes.
-    public enum Normalization: Sendable {
-        /// The UTF-8 bytes exactly as given, like Python's `s.encode()`.
-        case none
-        /// The UTF-8 bytes of the NFC form, like `unicodedata.normalize("NFC", s).encode()`.
-        /// Use it when the same text may arrive precomposed ("é") or decomposed ("e" + "◌́").
-        case nfc
+    /// How strings are turned into bytes. Text is always UTF-8.
+    public enum StringDigestingStrategy: Sendable {
+        /// The UTF-8 bytes exactly as given, like Python's `s.encode()`. Swift's `==` treats
+        /// precomposed "é" and decomposed "e" + "◌́" as equal, but their checksums differ.
+        case verbatim
+        /// The UTF-8 bytes of the NFC form, like `unicodedata.normalize("NFC", s).encode()`, so
+        /// strings that Swift's `==` treats as equal have equal checksums.
+        case normalized
     }
 
     /// How dates are turned into bytes, named after `JSONEncoder.DateEncodingStrategy`.
@@ -68,18 +69,18 @@ public struct Digester: Sendable {
     public let dateDigestingStrategy: DateDigestingStrategy
 
     /// How strings combined into this digester are turned into bytes.
-    public let normalization: Normalization
+    public let stringDigestingStrategy: StringDigestingStrategy
 
     private var message: [UInt8] = []
 
     /// Creates an empty digester.
     public init(
         encoding: Encoding = .typed,
-        normalization: Normalization = .none,
+        stringDigestingStrategy: StringDigestingStrategy = .verbatim,
         dateDigestingStrategy: DateDigestingStrategy = .microsecondsSince1970
     ) {
         self.encoding = encoding
-        self.normalization = normalization
+        self.stringDigestingStrategy = stringDigestingStrategy
         self.dateDigestingStrategy = dateDigestingStrategy
     }
 
@@ -106,6 +107,14 @@ public struct Digester: Sendable {
         Checksum(sha256: SHA.sha256(message))
     }
 
+    /// The bytes `value` contributes on its own, with this digester's settings.
+    func encoded(_ value: some Digestible) -> [UInt8] {
+        var digester = self
+        digester.message = []
+        digester.combine(value)
+        return digester.message
+    }
+
     /// Appends bytes exactly as given, whatever the encoding.
     mutating func append(_ bytes: some Sequence<UInt8>) {
         message.append(contentsOf: bytes)
@@ -122,6 +131,7 @@ extension Digester {
         case byteString = 2
         case textString = 3
         case array = 4
+        case map = 5
         case tag = 6
         case simple = 7
     }

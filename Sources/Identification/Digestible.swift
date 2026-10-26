@@ -44,13 +44,13 @@ extension Digestible {
 // Each conformance names its Python equivalent for both encodings. Typed values match
 // `cbor2.dumps(v, canonical=True)` and bytes values match `hashlib` input.
 
-/// Typed: a CBOR text string. Bytes: UTF-8, like `s.encode()`. Both normalize as the digester
-/// specifies.
+/// Typed: a CBOR text string. Bytes: UTF-8, like `s.encode()`. Both follow the digester's
+/// `stringDigestingStrategy`.
 extension String: Digestible {
     public func digest(into digester: inout Digester) {
-        let bytes = switch digester.normalization {
-        case .none: Array(utf8)
-        case .nfc: Array(precomposedStringWithCanonicalMapping.utf8)
+        let bytes = switch digester.stringDigestingStrategy {
+        case .verbatim: Array(utf8)
+        case .normalized: Array(precomposedStringWithCanonicalMapping.utf8)
         }
         if digester.encoding == .typed {
             digester.appendHead(.textString, UInt64(bytes.count))
@@ -98,6 +98,43 @@ extension Array: Digestible where Element: Digestible {
         }
         for element in self {
             digester.combine(element)
+        }
+    }
+}
+
+/// Typed: a CBOR map, like a Python `dict`. Bytes: each key then its value, with no separators.
+///
+/// Entries are sorted by their keys' encodings, shorter first and then bytewise: the
+/// length-first order of RFC 8949 Section 4.2.3, which `cbor2.dumps(d, canonical=True)` uses.
+extension Dictionary: Digestible where Key: Digestible, Value: Digestible {
+    public func digest(into digester: inout Digester) {
+        let entries = map { (key: digester.encoded($0.key), value: digester.encoded($0.value)) }
+            .sorted { first, second in
+                first.key.count != second.key.count
+                    ? first.key.count < second.key.count
+                    : first.key.lexicographicallyPrecedes(second.key)
+            }
+        if digester.encoding == .typed {
+            digester.appendHead(.map, UInt64(count))
+        }
+        for entry in entries {
+            digester.append(entry.key)
+            digester.append(entry.value)
+        }
+    }
+}
+
+/// Typed: `nil` is CBOR null, like Python `None`. Bytes: `nil` adds nothing. Either way, a
+/// wrapped value is the same as the value itself.
+extension Optional: Digestible where Wrapped: Digestible {
+    public func digest(into digester: inout Digester) {
+        switch self {
+        case .some(let value):
+            digester.combine(value)
+        case .none:
+            if digester.encoding == .typed {
+                digester.append([0xF6])
+            }
         }
     }
 }

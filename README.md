@@ -108,6 +108,8 @@ hashlib.sha256("hello world".encode()).digest()[:16].hex()     # 'b94d27b9934d3e
 | `Bool` | `bool` | `bytes([b])` |
 | `Date` | see [Dates](#dates) | see [Dates](#dates) |
 | `[Element]` | `list` | each element in order |
+| `[Key: Value]` | `dict` (keys sorted length-first, as cbor2 does) | each key then value, in that order |
+| `Optional` | `None` for `nil` | nothing for `nil` |
 
 Floats follow IEEE 754: `0.0` and `-0.0` differ, and every NaN is the same.
 
@@ -129,8 +131,9 @@ let exact = Digester(dateDigestingStrategy: .deferredToDate)
 date.checksum(using: exact)
 ```
 
-`Digester(normalization: .nfc)` hashes strings in NFC (Python:
-`unicodedata.normalize("NFC", s)`) for text that may arrive precomposed or decomposed.
+`Digester(stringDigestingStrategy: .normalized)` hashes strings in NFC (Python:
+`unicodedata.normalize("NFC", s)`), so strings Swift's `==` calls equal, such as precomposed and
+decomposed "é", get equal checksums. The default, `.verbatim`, hashes the UTF-8 bytes as given.
 
 ### Name-based UUIDs
 

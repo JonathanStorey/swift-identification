@@ -111,14 +111,31 @@ struct TypedChecksumTests {
         #expect("abc".checksum().uuid.uuidString == "A6D89BAF-01AC-0263-7DA0-9835B28485B2")
     }
 
-    @Test("Strings hash as given unless the digester asks for NFC")
+    @Test("Optionals match None and dictionaries match canonical cbor2 maps")
+    func optionalsAndDictionaries() {
+        #expect(Int?.none.checksum().hex == "b0b2988b6bbe724bacda5e9e524736de")
+        #expect(Int?.some(5).checksum() == 5.checksum())
+        // [1, None]
+        #expect([1, nil].checksum().hex == "6a7446563d3f03a03e08e917b6288773")
+        // {"bb": 1, "a": 2, "c": 3}: shorter keys sort first.
+        #expect(["bb": 1, "a": 2, "c": 3].checksum().hex == "f64172303767fb8505114254806f92c0")
+        // {"aaa": 1, "b": 2}
+        #expect(["aaa": 1, "b": 2].checksum().hex == "8688dbb7474b7138b56ac44c9648bfa6")
+        // {100: "x", -1: "y", 2: "z"}
+        #expect([100: "x", -1: "y", 2: "z"].checksum().hex == "1730afff5dbe1619836505fd92a1334c")
+        #expect([String: Int]().checksum().hex == "c19a797fa1fd590cd2e5b42d1cf5f246")
+    }
+
+    @Test("Strings hash as given unless the digester normalizes them")
     func normalization() {
         let composed = "caf\u{E9}"
         let decomposed = "cafe\u{301}"
         // Swift calls these equal, but their UTF-8 bytes differ.
         #expect(composed == decomposed)
         #expect(composed.checksum() != decomposed.checksum())
-        #expect(decomposed.checksum(using: Digester(normalization: .nfc)) == composed.checksum())
+        let normalized = Digester(stringDigestingStrategy: .normalized)
+        #expect(decomposed.checksum(using: normalized) == composed.checksum())
+        #expect(decomposed.checksum(using: normalized) == composed.checksum(using: normalized))
     }
 }
 
@@ -181,6 +198,13 @@ struct BytesChecksumTests {
         // (-500_000).to_bytes(8, "big", signed=True)
         let early = Date(timeIntervalSince1970: -0.5)
         #expect(early.checksum(using: digester).hex == "d76bfd40889f26f6b490f480cd929aab")
+    }
+
+    @Test("Dictionaries append sorted keys and values")
+    func dictionaries() {
+        // b"a" + (2).to_bytes(8, "big", signed=True) + b"c" + ... + b"bb" + (1).to_bytes(...)
+        #expect(["bb": 1, "a": 2, "c": 3].checksum(using: digester).hex == "3d648f7f07d1ad02d2dbe5a1d48fb964")
+        #expect(Int?.none.checksum(using: digester) == [UInt8]().checksum(using: digester))
     }
 
     @Test("Appends without separators")
