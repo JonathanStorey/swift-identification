@@ -7,7 +7,7 @@ import Foundation
 ///
 /// The raw value is those 16 bytes read as a big-endian integer, like Python's
 /// `int.from_bytes(digest, "big")`, so a checksum is 16 bytes inline with no allocation.
-public struct Checksum: RawRepresentable, Hashable, Sendable, CustomStringConvertible, Codable {
+public struct Checksum: RawRepresentable, Hashable, Sendable, LosslessStringConvertible, Codable {
     /// The checksum bytes as a big-endian integer.
     public let rawValue: UInt128
 
@@ -25,8 +25,10 @@ public struct Checksum: RawRepresentable, Hashable, Sendable, CustomStringConver
     }
 
     /// Restores a checksum from its 32 hexadecimal digits, in either case.
-    public init?(hex: String) {
-        let digits = Array(hex.utf8)
+    ///
+    /// This parses a stored checksum. It does not compute one: use `"text".checksum()` for that.
+    public init?(_ description: String) {
+        let digits = Array(description.utf8)
         guard digits.count == 32 else { return nil }
         var rawValue: UInt128 = 0
         for digit in digits {
@@ -39,10 +41,10 @@ public struct Checksum: RawRepresentable, Hashable, Sendable, CustomStringConver
     /// Decodes a checksum stored as its hexadecimal string.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()
-        let hex = try container.decode(String.self)
-        guard let checksum = Checksum(hex: hex) else {
+        let description = try container.decode(String.self)
+        guard let checksum = Checksum(description) else {
             throw DecodingError.dataCorruptedError(
-                in: container, debugDescription: "Expected 32 hexadecimal digits, found \"\(hex)\"."
+                in: container, debugDescription: "Expected 32 hexadecimal digits, found \"\(description)\"."
             )
         }
         self = checksum
@@ -51,7 +53,7 @@ public struct Checksum: RawRepresentable, Hashable, Sendable, CustomStringConver
     /// Encodes the checksum as its hexadecimal string.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.singleValueContainer()
-        try container.encode(hex)
+        try container.encode(description)
     }
 
     private static func value(ofHexDigit digit: UInt8) -> UInt8? {
@@ -69,7 +71,7 @@ public struct Checksum: RawRepresentable, Hashable, Sendable, CustomStringConver
     }
 
     /// The checksum as 32 lowercase hexadecimal digits, like Python's `.hex()`.
-    public var hex: String {
+    public var description: String {
         let digits = String(rawValue, radix: 16)
         return String(repeating: "0", count: 32 - digits.count) + digits
     }
@@ -86,6 +88,4 @@ public struct Checksum: RawRepresentable, Hashable, Sendable, CustomStringConver
             bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
         ))
     }
-
-    public var description: String { hex }
 }

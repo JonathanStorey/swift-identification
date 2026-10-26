@@ -18,9 +18,8 @@ struct TypedChecksumTests {
     ])
     func strings(_ string: String, _ hex: String) {
         let checksum = string.checksum()
-        #expect(checksum.hex == hex)
+        #expect(String(checksum) == hex)
         #expect(checksum.bytes.count == 16)
-        #expect(checksum.description == hex)
         #expect(string.dropFirst(0).checksum() == checksum)
     }
 
@@ -28,35 +27,35 @@ struct TypedChecksumTests {
     func bytes() {
         // bytes(range(256))
         let bytes = (0...255).map(UInt8.init)
-        #expect(bytes.checksum().hex == "4c80e10599d518d15f8b1efbda60c328")
+        #expect(bytes.checksum().description == "4c80e10599d518d15f8b1efbda60c328")
         #expect(Data(bytes).checksum() == bytes.checksum())
     }
 
     @Test("Integers match by value, whatever their width")
     func integers() {
-        #expect(Int(5).checksum().hex == "e77b9a9ae9e30b0dbdb6f510a264ef9d")
+        #expect(Int(5).checksum().description == "e77b9a9ae9e30b0dbdb6f510a264ef9d")
         #expect(Int32(5).checksum() == Int(5).checksum())
         #expect(UInt8(5).checksum() == Int(5).checksum())
-        #expect(Int(-1).checksum().hex == "36a9e7f1c95b82ffb99743e0c5c4ce95")
-        #expect(Int16(-500).checksum().hex == "0916d3cb2a903cddb78a97241304bc94")
-        #expect(Int(1_000_000).checksum().hex == "cbbec14103147af122feaff2419ad885")
-        #expect(UInt64.max.checksum().hex == "2d7cb0927d162df726656d7155780f04")
-        #expect(Int64.min.checksum().hex == "67e32b647dedafb41220d36a02052aef")
+        #expect(Int(-1).checksum().description == "36a9e7f1c95b82ffb99743e0c5c4ce95")
+        #expect(Int16(-500).checksum().description == "0916d3cb2a903cddb78a97241304bc94")
+        #expect(Int(1_000_000).checksum().description == "cbbec14103147af122feaff2419ad885")
+        #expect(UInt64.max.checksum().description == "2d7cb0927d162df726656d7155780f04")
+        #expect(Int64.min.checksum().description == "67e32b647dedafb41220d36a02052aef")
     }
 
     @Test("Floating point matches the shortest exact CBOR float")
     func floatingPoint() {
-        #expect(1.5.checksum().hex == "b68bb45ecab0329ab815daf44f5a02d2")
+        #expect(1.5.checksum().description == "b68bb45ecab0329ab815daf44f5a02d2")
         #expect(Float(1.5).checksum() == 1.5.checksum())
-        #expect(0.1.checksum().hex == "8a4d00337ef54566f0092ea89930adf2")
+        #expect(0.1.checksum().description == "8a4d00337ef54566f0092ea89930adf2")
         // Float(0.1) is a different value from 0.1, so it differs from 0.1 as Python does.
-        #expect(Float(0.1).checksum().hex == "c957587042e74d83a024620582001bce")
-        #expect((-0.0).checksum().hex == "e95873bb6549017f8cd72cc8af178667")
+        #expect(Float(0.1).checksum().description == "c957587042e74d83a024620582001bce")
+        #expect((-0.0).checksum().description == "e95873bb6549017f8cd72cc8af178667")
         #expect((-0.0).checksum() != 0.0.checksum())
-        #expect(Double.nan.checksum().hex == "510364a22f07e10b06ba37c25de66e4b")
+        #expect(Double.nan.checksum().description == "510364a22f07e10b06ba37c25de66e4b")
         #expect(Float.nan.checksum() == Double.nan.checksum())
-        #expect(Double.infinity.checksum().hex == "33198540d806815f249ae78851dafcb8")
-        #expect(100_000.0.checksum().hex == "05a7624cd6aa2fc46465dd99039855f1")
+        #expect(Double.infinity.checksum().description == "33198540d806815f249ae78851dafcb8")
+        #expect(100_000.0.checksum().description == "05a7624cd6aa2fc46465dd99039855f1")
     }
 
     @Test("Half precision bits match IEEE 754", arguments: [
@@ -78,12 +77,12 @@ struct TypedChecksumTests {
 
     @Test("Bools, UUIDs and arrays match CBOR")
     func otherTypes() {
-        #expect(true.checksum().hex == "27abdeddfe8503496adeb623466caa47")
-        #expect(false.checksum().hex == "2017ff3461395672aa0aa4f64894fd2f")
+        #expect(true.checksum().description == "27abdeddfe8503496adeb623466caa47")
+        #expect(false.checksum().description == "2017ff3461395672aa0aa4f64894fd2f")
         // uuid.NAMESPACE_DNS
-        #expect(UUID.dns.checksum().hex == "7cf1562dc0b172686a82e17b10744bd7")
-        #expect(["a", "bc"].checksum().hex == "a40e65039b87e11a65b6d52f1bd334d4")
-        #expect(["ab", "c"].checksum().hex == "c56a8852ab50a8f640bacda6b9865739")
+        #expect(UUID.dns.checksum().description == "7cf1562dc0b172686a82e17b10744bd7")
+        #expect(["a", "bc"].checksum().description == "a40e65039b87e11a65b6d52f1bd334d4")
+        #expect(["ab", "c"].checksum().description == "c56a8852ab50a8f640bacda6b9865739")
         #expect([1, 2].checksum() != [UInt8(1), 2].checksum())
     }
 
@@ -98,7 +97,7 @@ struct TypedChecksumTests {
     func dates(_ interval: TimeInterval, _ hex: String) {
         // cbor2.dumps(dt, canonical=True, datetime_as_timestamp=True)
         let digester = Digester(dateDigestingStrategy: .microsecondsSince1970)
-        #expect(Date(timeIntervalSince1970: interval).checksum(using: digester).hex == hex)
+        #expect(Date(timeIntervalSince1970: interval).checksum(using: digester).description == hex)
     }
 
     @Test("Dates round to the nearest microsecond")
@@ -119,20 +118,20 @@ struct TypedChecksumTests {
         #expect(Checksum(rawValue: checksum.rawValue) == checksum)
         #expect(checksum.bytes.first == 0xA6)
         #expect(checksum.bytes.last == 0xB2)
-        #expect(Checksum(rawValue: 1).hex == "00000000000000000000000000000001")
+        #expect(Checksum(rawValue: 1).description == "00000000000000000000000000000001")
         #expect(Checksum(rawValue: 1).bytes == Array(repeating: 0, count: 15) + [1])
     }
 
-    @Test("Restores from hex and from Codable")
+    @Test("Restores from its description and from Codable")
     func restore() throws {
         let checksum = "abc".checksum()
-        #expect(Checksum(hex: checksum.hex) == checksum)
-        #expect(Checksum(hex: checksum.hex.uppercased()) == checksum)
-        #expect(Checksum(hex: "abc") == nil)
-        #expect(Checksum(hex: String(repeating: "g", count: 32)) == nil)
+        #expect(Checksum(checksum.description) == checksum)
+        #expect(Checksum(checksum.description.uppercased()) == checksum)
+        #expect(Checksum("abc") == nil)
+        #expect(Checksum(String(repeating: "g", count: 32)) == nil)
 
         let json = try JSONEncoder().encode([checksum])
-        #expect(String(decoding: json, as: UTF8.self) == "[\"\(checksum.hex)\"]")
+        #expect(String(decoding: json, as: UTF8.self) == "[\"\(checksum.description)\"]")
         #expect(try JSONDecoder().decode([Checksum].self, from: json) == [checksum])
         #expect(throws: DecodingError.self) {
             try JSONDecoder().decode(Checksum.self, from: Data("\"abc\"".utf8))
@@ -146,17 +145,17 @@ struct TypedChecksumTests {
 
     @Test("Optionals match None and dictionaries match canonical cbor2 maps")
     func optionalsAndDictionaries() {
-        #expect(Int?.none.checksum().hex == "b0b2988b6bbe724bacda5e9e524736de")
+        #expect(Int?.none.checksum().description == "b0b2988b6bbe724bacda5e9e524736de")
         #expect(Int?.some(5).checksum() == 5.checksum())
         // [1, None]
-        #expect([1, nil].checksum().hex == "6a7446563d3f03a03e08e917b6288773")
+        #expect([1, nil].checksum().description == "6a7446563d3f03a03e08e917b6288773")
         // {"bb": 1, "a": 2, "c": 3}: shorter keys sort first.
-        #expect(["bb": 1, "a": 2, "c": 3].checksum().hex == "f64172303767fb8505114254806f92c0")
+        #expect(["bb": 1, "a": 2, "c": 3].checksum().description == "f64172303767fb8505114254806f92c0")
         // {"aaa": 1, "b": 2}
-        #expect(["aaa": 1, "b": 2].checksum().hex == "8688dbb7474b7138b56ac44c9648bfa6")
+        #expect(["aaa": 1, "b": 2].checksum().description == "8688dbb7474b7138b56ac44c9648bfa6")
         // {100: "x", -1: "y", 2: "z"}
-        #expect([100: "x", -1: "y", 2: "z"].checksum().hex == "1730afff5dbe1619836505fd92a1334c")
-        #expect([String: Int]().checksum().hex == "c19a797fa1fd590cd2e5b42d1cf5f246")
+        #expect([100: "x", -1: "y", 2: "z"].checksum().description == "1730afff5dbe1619836505fd92a1334c")
+        #expect([String: Int]().checksum().description == "c19a797fa1fd590cd2e5b42d1cf5f246")
     }
 
     @Test("Strings hash as given unless the digester normalizes them")
@@ -185,59 +184,59 @@ struct BytesChecksumTests {
         ("🙂", "d06f1525f791397809f9bc98682b5c13"),
     ])
     func strings(_ string: String, _ hex: String) {
-        #expect(string.checksum(using: digester).hex == hex)
+        #expect(string.checksum(using: digester).description == hex)
     }
 
     @Test("Bytes match the bytes as given")
     func bytes() {
         // bytes(range(256))
         let bytes = (0...255).map(UInt8.init)
-        #expect(bytes.checksum(using: digester).hex == "40aff2e9d2d8922e47afd4648e696749")
+        #expect(bytes.checksum(using: digester).description == "40aff2e9d2d8922e47afd4648e696749")
         #expect(Data(bytes).checksum(using: digester) == bytes.checksum(using: digester))
     }
 
     @Test("Integers match n.to_bytes(width, 'big')")
     func integers() {
         // (5).to_bytes(8, "big", signed=True)
-        #expect(Int(5).checksum(using: digester).hex == "5dee4dd60ff8d0ba9900fe91e90e0dcf")
+        #expect(Int(5).checksum(using: digester).description == "5dee4dd60ff8d0ba9900fe91e90e0dcf")
         #expect(Int64(5).checksum(using: digester) == Int(5).checksum(using: digester))
         // (-1).to_bytes(8, "big", signed=True)
-        #expect(Int(-1).checksum(using: digester).hex == "12a3ae445661ce5dee78d0650d33362d")
+        #expect(Int(-1).checksum(using: digester).description == "12a3ae445661ce5dee78d0650d33362d")
         // (5).to_bytes(4, "big", signed=True)
-        #expect(Int32(5).checksum(using: digester).hex == "221f8af2372a95064f2ef7d7712216a9")
+        #expect(Int32(5).checksum(using: digester).description == "221f8af2372a95064f2ef7d7712216a9")
         // bytes([255])
-        #expect(UInt8(255).checksum(using: digester).hex == "a8100ae6aa1940d0b663bb31cd466142")
+        #expect(UInt8(255).checksum(using: digester).description == "a8100ae6aa1940d0b663bb31cd466142")
         // (0x1234).to_bytes(2, "big")
-        #expect(UInt16(0x1234).checksum(using: digester).hex == "3a103a4e5729ad68c02a678ae39accfb")
+        #expect(UInt16(0x1234).checksum(using: digester).description == "3a103a4e5729ad68c02a678ae39accfb")
         #expect(UInt(5).checksum(using: digester) == UInt64(5).checksum(using: digester))
     }
 
     @Test("Floating point matches struct.pack('>d') and ('>f')")
     func floatingPoint() {
-        #expect(1.5.checksum(using: digester).hex == "430d595dc1ef65e95d4ebdc1c16a5b1d")
-        #expect((-0.0).checksum(using: digester).hex == "b1b0bee5378188f5250138bcce25855f")
-        #expect(Float(1.5).checksum(using: digester).hex == "314ed632b7fb5d384c2dde92e5f3acc0")
+        #expect(1.5.checksum(using: digester).description == "430d595dc1ef65e95d4ebdc1c16a5b1d")
+        #expect((-0.0).checksum(using: digester).description == "b1b0bee5378188f5250138bcce25855f")
+        #expect(Float(1.5).checksum(using: digester).description == "314ed632b7fb5d384c2dde92e5f3acc0")
     }
 
     @Test("Bools match bytes([b]), UUIDs match u.bytes, dates match microseconds")
     func otherTypes() {
-        #expect(true.checksum(using: digester).hex == "4bf5122f344554c53bde2ebb8cd2b7e3")
-        #expect(false.checksum(using: digester).hex == "6e340b9cffb37a989ca544e6bb780a2c")
+        #expect(true.checksum(using: digester).description == "4bf5122f344554c53bde2ebb8cd2b7e3")
+        #expect(false.checksum(using: digester).description == "6e340b9cffb37a989ca544e6bb780a2c")
         // uuid.NAMESPACE_DNS.bytes
-        #expect(UUID.dns.checksum(using: digester).hex == "4ebc3bf944587d83baaef9d9dc2ad979")
+        #expect(UUID.dns.checksum(using: digester).description == "4ebc3bf944587d83baaef9d9dc2ad979")
         let microseconds = Digester(encoding: .bytes, dateDigestingStrategy: .microsecondsSince1970)
         // (1_793_026_800_250_000).to_bytes(8, "big", signed=True)
         let date = Date(timeIntervalSince1970: 1_793_026_800.25)
-        #expect(date.checksum(using: microseconds).hex == "572a4b315cc239fe2abaee0df8c2284e")
+        #expect(date.checksum(using: microseconds).description == "572a4b315cc239fe2abaee0df8c2284e")
         // (-500_000).to_bytes(8, "big", signed=True)
         let early = Date(timeIntervalSince1970: -0.5)
-        #expect(early.checksum(using: microseconds).hex == "d76bfd40889f26f6b490f480cd929aab")
+        #expect(early.checksum(using: microseconds).description == "d76bfd40889f26f6b490f480cd929aab")
     }
 
     @Test("Dictionaries append sorted keys and values")
     func dictionaries() {
         // b"a" + (2).to_bytes(8, "big", signed=True) + b"c" + ... + b"bb" + (1).to_bytes(...)
-        #expect(["bb": 1, "a": 2, "c": 3].checksum(using: digester).hex == "3d648f7f07d1ad02d2dbe5a1d48fb964")
+        #expect(["bb": 1, "a": 2, "c": 3].checksum(using: digester).description == "3d648f7f07d1ad02d2dbe5a1d48fb964")
         #expect(Int?.none.checksum(using: digester) == [UInt8]().checksum(using: digester))
     }
 
@@ -258,12 +257,12 @@ struct DateDigestingStrategyTests {
     func checksum(
         _ date: Date, _ strategy: Digester.DateDigestingStrategy, _ encoding: Digester.Encoding = .typed
     ) -> String {
-        date.checksum(using: Digester(encoding: encoding, dateDigestingStrategy: strategy)).hex
+        date.checksum(using: Digester(encoding: encoding, dateDigestingStrategy: strategy)).description
     }
 
     @Test("Deferred to Date is the default, matches the Double since 2001 and tells every Date apart")
     func deferredToDate() {
-        #expect(checksum(date, .deferredToDate) == date.checksum().hex)
+        #expect(checksum(date, .deferredToDate) == date.checksum().description)
         // cbor2.dumps(814719600.25, canonical=True) and struct.pack(">d", 814719600.25)
         #expect(checksum(date, .deferredToDate) == "26de88594df6fce2fc537e68cc3f1d6f")
         #expect(checksum(date, .deferredToDate, .bytes) == "07d64cc6bc1def487066c6903df8a9f7")
@@ -308,7 +307,7 @@ struct DateDigestingStrategyTests {
         // cbor2.dumps(dt, canonical=True) and dt.isoformat().replace("+00:00", "Z").encode()
         let date = Date(timeIntervalSince1970: interval)
         #expect(checksum(date, .iso8601) == hex)
-        #expect(checksum(date, .iso8601, .bytes) == text.checksum(using: Digester(encoding: .bytes)).hex)
+        #expect(checksum(date, .iso8601, .bytes) == text.checksum(using: Digester(encoding: .bytes)).description)
     }
 
     @Test("Custom digests with the closure")
@@ -316,7 +315,7 @@ struct DateDigestingStrategyTests {
         let strategy = Digester.DateDigestingStrategy.custom { date, digester in
             digester.combine(date.ISO8601Format())
         }
-        #expect(checksum(date, strategy) == "2026-10-26T15:00:00Z".checksum().hex)
+        #expect(checksum(date, strategy) == "2026-10-26T15:00:00Z".checksum().description)
     }
 }
 
@@ -338,7 +337,7 @@ struct DigesterTests {
     func typedSequence() {
         // b"".join(cbor2.dumps(v, canonical=True) for v in ("id", 42, uuid.NAMESPACE_URL))
         let record = Record(name: "id", count: 42, namespace: .url)
-        #expect(record.checksum().hex == "bd05534442af9152d3732e0fc7d92bb3")
+        #expect(record.checksum().description == "bd05534442af9152d3732e0fc7d92bb3")
     }
 
     @Test("Bytes combining matches successive h.update() calls")
@@ -347,13 +346,13 @@ struct DigesterTests {
         // h.update(uuid.NAMESPACE_URL.bytes)
         let expected = "dba712204f06f34b6fcbe0a265be9113"
         let record = Record(name: "id", count: 42, namespace: .url)
-        #expect(record.checksum(using: Digester(encoding: .bytes)).hex == expected)
+        #expect(record.checksum(using: Digester(encoding: .bytes)).description == expected)
 
         var digester = Digester(encoding: .bytes)
         digester.combine("id")
         digester.combine(42)
         digester.combine(Data(withUnsafeBytes(of: UUID.url.uuid) { Array($0) }))
-        #expect(digester.finalize().hex == expected)
+        #expect(digester.finalize().description == expected)
     }
 
     @Test("Continues from what the digester already holds")

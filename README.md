@@ -44,13 +44,13 @@ Python can reproduce it byte for byte.
 
 ```swift
 let checksum = "hello world".checksum()
-checksum.hex    // "a6dc1f38a111301a02f8c66046712cd9"
+String(checksum)        // "a6dc1f38a111301a02f8c66046712cd9"
 checksum.uuid   // A6DC1F38-A111-301A-02F8-C66046712CD9
 ```
 
 `checksum.uuid` keeps all 128 bits, so it is UUID-shaped but not an RFC 9562 UUID. A stored
-checksum comes back with `Checksum(hex:)` or `Codable`, which writes the hex
-string. `Checksum` is `RawRepresentable` as a `UInt128`, the bytes read big-endian (Python:
+checksum comes back with `Checksum(_:)`, its `LosslessStringConvertible` initializer, or `Codable`, which
+writes the same hex string. `Checksum` is `RawRepresentable` as a `UInt128`, the bytes read big-endian (Python:
 `int.from_bytes(digest, "big")`), so each one is 16 bytes inline.
 
 Conform your own types like `Hashable`:
@@ -93,7 +93,7 @@ Each `combine` call is one argument, so `Account(id: id, name: name).checksum()`
 `h.update(...)` calls. Use it to match a checksum of raw bytes computed anywhere else:
 
 ```swift
-"hello world".checksum(using: Digester(encoding: .bytes)).hex  // "b94d27b9934d3e08a52e52d7da7dabfa"
+String("hello world".checksum(using: Digester(encoding: .bytes)))  // "b94d27b9934d3e08a52e52d7da7dabfa"
 ```
 
 ```python
