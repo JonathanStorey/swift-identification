@@ -15,6 +15,8 @@ jobs:
       - run: swift --version
       - run: swift build
       - run: swift test
+      - name: Build for iOS
+        run: xcodebuild build -scheme Identification -destination 'generic/platform=iOS' -quiet
 
   linux:
     runs-on: ubuntu-latest
