@@ -7,7 +7,7 @@ import Foundation
 ///
 /// The raw value is those 16 bytes read as a big-endian integer, like Python's
 /// `int.from_bytes(digest, "big")`, so a checksum is 16 bytes inline with no allocation.
-public struct Checksum: RawRepresentable, Hashable, Sendable, LosslessStringConvertible, Codable {
+public struct Checksum: RawRepresentable, Hashable, Sendable, CustomStringConvertible, Codable {
     /// The checksum bytes as a big-endian integer.
     public let rawValue: UInt128
 
@@ -24,11 +24,9 @@ public struct Checksum: RawRepresentable, Hashable, Sendable, LosslessStringConv
         rawValue = bytes.reduce(0) { $0 << 8 | UInt128($1) }
     }
 
-    /// Restores a checksum from its 32 hexadecimal digits, in either case.
-    ///
-    /// This parses a stored checksum. It does not compute one: use `"text".checksum()` for that.
-    public init?(_ description: String) {
-        let digits = Array(description.utf8)
+    /// Parses 32 hexadecimal digits, in either case, for decoding.
+    private init?(hexadecimal: String) {
+        let digits = Array(hexadecimal.utf8)
         guard digits.count == 32 else { return nil }
         var rawValue: UInt128 = 0
         for digit in digits {
@@ -42,7 +40,7 @@ public struct Checksum: RawRepresentable, Hashable, Sendable, LosslessStringConv
     public init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()
         let description = try container.decode(String.self)
-        guard let checksum = Checksum(description) else {
+        guard let checksum = Checksum(hexadecimal: description) else {
             throw DecodingError.dataCorruptedError(
                 in: container, debugDescription: "Expected 32 hexadecimal digits, found \"\(description)\"."
             )

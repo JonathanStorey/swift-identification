@@ -18,7 +18,7 @@ struct TypedChecksumTests {
     ])
     func strings(_ string: String, _ hex: String) {
         let checksum = string.checksum()
-        #expect(String(checksum) == hex)
+        #expect(checksum.description == hex)
         #expect(checksum.bytes.count == 16)
         #expect(string.dropFirst(0).checksum() == checksum)
     }
@@ -122,19 +122,18 @@ struct TypedChecksumTests {
         #expect(Checksum(rawValue: 1).bytes == Array(repeating: 0, count: 15) + [1])
     }
 
-    @Test("Restores from its description and from Codable")
-    func restore() throws {
+    @Test("Round-trips through Codable as its description")
+    func codable() throws {
         let checksum = "abc".checksum()
-        #expect(Checksum(checksum.description) == checksum)
-        #expect(Checksum(checksum.description.uppercased()) == checksum)
-        #expect(Checksum("abc") == nil)
-        #expect(Checksum(String(repeating: "g", count: 32)) == nil)
-
         let json = try JSONEncoder().encode([checksum])
         #expect(String(decoding: json, as: UTF8.self) == "[\"\(checksum.description)\"]")
         #expect(try JSONDecoder().decode([Checksum].self, from: json) == [checksum])
-        #expect(throws: DecodingError.self) {
-            try JSONDecoder().decode(Checksum.self, from: Data("\"abc\"".utf8))
+        let uppercase = Data("\"\(checksum.description.uppercased())\"".utf8)
+        #expect(try JSONDecoder().decode(Checksum.self, from: uppercase) == checksum)
+        for invalid in ["abc", String(repeating: "g", count: 32)] {
+            #expect(throws: DecodingError.self) {
+                try JSONDecoder().decode(Checksum.self, from: Data("\"\(invalid)\"".utf8))
+            }
         }
     }
 
