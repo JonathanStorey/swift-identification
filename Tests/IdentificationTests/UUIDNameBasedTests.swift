@@ -50,6 +50,18 @@ struct UUIDNameBasedTests {
         #expect(id.uuidString == "5C146B14-3C52-8AFD-938A-375D0DF1FBF6")
     }
 
+    /// Expected values were computed with Python 3.13's `uuid.uuid5(namespace, name)`.
+    @Test("Version 5 matches Python's uuid.uuid5", arguments: [
+        (UUID.dns, "python.org", "886313E1-3B8A-5372-9B90-0C9AEE199E5D"),
+        (UUID.url, "https://www.python.org/", "5406F80D-92E9-51CD-A176-77445955E733"),
+        (UUID.dns, "caf\u{E9}", "5E2E2331-A683-5E18-B56D-666E31574B41"),
+        (UUID.oid, "", "0A68EB57-C88A-5F34-9E9D-27F85E68AF4F"),
+        (UUID.x500, "cn=John Smith", "D1407EFB-6828-5023-9FDE-962C4ECC2ADB"),
+    ])
+    func python(_ namespace: UUID, _ name: String, _ expected: String) {
+        #expect(UUID(name: name, namespace: namespace).uuidString == expected)
+    }
+
     @Test("Is deterministic and depends on namespace and name")
     func deterministic() {
         #expect(UUID(name: "a", namespace: .url) == UUID(name: "a", namespace: .url))
