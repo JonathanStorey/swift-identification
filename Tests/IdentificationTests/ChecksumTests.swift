@@ -123,12 +123,11 @@ struct TypedChecksumTests {
         #expect(Checksum(rawValue: 1).bytes == Array(repeating: 0, count: 15) + [1])
     }
 
-    @Test("Restores from hex, from its UUID and from Codable")
+    @Test("Restores from hex and from Codable")
     func restore() throws {
         let checksum = "abc".checksum()
         #expect(Checksum(hex: checksum.hex) == checksum)
         #expect(Checksum(hex: checksum.hex.uppercased()) == checksum)
-        #expect(Checksum(uuid: checksum.uuid) == checksum)
         #expect(Checksum(hex: "abc") == nil)
         #expect(Checksum(hex: String(repeating: "g", count: 32)) == nil)
 

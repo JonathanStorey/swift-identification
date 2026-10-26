@@ -36,11 +36,6 @@ public struct Checksum: RawRepresentable, Hashable, Sendable, CustomStringConver
         self.init(rawValue: rawValue)
     }
 
-    /// Restores a checksum from the `UUID` its `uuid` property produced.
-    public init(uuid: UUID) {
-        self = withUnsafeBytes(of: uuid.uuid) { Checksum(bigEndianBytes: $0) }
-    }
-
     /// Decodes a checksum stored as its hexadecimal string.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()

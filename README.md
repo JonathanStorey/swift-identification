@@ -49,7 +49,7 @@ checksum.uuid   // A6DC1F38-A111-301A-02F8-C66046712CD9
 ```
 
 `checksum.uuid` keeps all 128 bits, so it is UUID-shaped but not an RFC 9562 UUID. A stored
-checksum comes back with `Checksum(hex:)`, `Checksum(uuid:)` or `Codable`, which writes the hex
+checksum comes back with `Checksum(hex:)` or `Codable`, which writes the hex
 string. `Checksum` is `RawRepresentable` as a `UInt128`, the bytes read big-endian (Python:
 `int.from_bytes(digest, "big")`), so each one is 16 bytes inline.
 
