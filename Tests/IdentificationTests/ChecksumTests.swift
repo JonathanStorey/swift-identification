@@ -212,12 +212,13 @@ struct BytesChecksumTests {
         #expect(false.checksum(using: digester).hex == "6e340b9cffb37a989ca544e6bb780a2c")
         // uuid.NAMESPACE_DNS.bytes
         #expect(UUID.dns.checksum(using: digester).hex == "4ebc3bf944587d83baaef9d9dc2ad979")
+        let microseconds = Digester(encoding: .bytes, dateDigestingStrategy: .microsecondsSince1970)
         // (1_793_026_800_250_000).to_bytes(8, "big", signed=True)
         let date = Date(timeIntervalSince1970: 1_793_026_800.25)
-        #expect(date.checksum(using: digester).hex == "572a4b315cc239fe2abaee0df8c2284e")
+        #expect(date.checksum(using: microseconds).hex == "572a4b315cc239fe2abaee0df8c2284e")
         // (-500_000).to_bytes(8, "big", signed=True)
         let early = Date(timeIntervalSince1970: -0.5)
-        #expect(early.checksum(using: digester).hex == "d76bfd40889f26f6b490f480cd929aab")
+        #expect(early.checksum(using: microseconds).hex == "d76bfd40889f26f6b490f480cd929aab")
     }
 
     @Test("Dictionaries append sorted keys and values")
