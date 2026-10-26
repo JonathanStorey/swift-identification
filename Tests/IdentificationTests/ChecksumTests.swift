@@ -240,6 +240,19 @@ struct DateDigestingStrategyTests {
         #expect(checksum(nextDate, .microsecondsSince1970) == checksum(date, .microsecondsSince1970))
     }
 
+    @Test("ISO 8601 matches cbor2's default datetime encoding", arguments: [
+        (1_793_026_800.0, "2026-10-26T15:00:00Z", "0d7022a5fa53083ee33a92e1cfd5c3ea"),
+        (1_793_026_800.25, "2026-10-26T15:00:00.250000Z", "53063d6b637dec79fd942de547bd9ba8"),
+        (-0.5, "1969-12-31T23:59:59.500000Z", "a76c772bbda8e0f9757f523aa6c3b245"),
+        (951_782_400.000_001, "2000-02-29T00:00:00.000001Z", "28bf48e702244fc18489e6d8ae317cb9"),
+    ])
+    func iso8601(_ interval: TimeInterval, _ text: String, _ hex: String) {
+        // cbor2.dumps(dt, canonical=True) and dt.isoformat().replace("+00:00", "Z").encode()
+        let date = Date(timeIntervalSince1970: interval)
+        #expect(checksum(date, .iso8601) == hex)
+        #expect(checksum(date, .iso8601, .bytes) == text.checksum(using: Digester(encoding: .bytes)).hex)
+    }
+
     @Test("Custom digests with the closure")
     func custom() {
         let strategy = Digester.DateDigestingStrategy.custom { date, digester in

@@ -186,6 +186,11 @@ extension Date: Digestible {
             digestRounded(into: &digester, unitsPerSecond: 1_000)
         case .microsecondsSince1970:
             digestRounded(into: &digester, unitsPerSecond: 1_000_000)
+        case .iso8601:
+            if digester.encoding == .typed {
+                digester.appendHead(.tag, 0)
+            }
+            digester.combine(iso8601String)
         case .custom(let closure):
             closure(self, &digester)
         }
@@ -196,11 +201,7 @@ extension Date: Digestible {
         switch digester.encoding {
         case .typed:
             // The same arithmetic as cbor2: whole seconds, plus microseconds / 1_000_000.
-            var (seconds, fraction) = units.quotientAndRemainder(dividingBy: unitsPerSecond)
-            if fraction < 0 {
-                seconds -= 1
-                fraction += unitsPerSecond
-            }
+            let (seconds, fraction) = floorDivision(units, unitsPerSecond)
             digester.appendHead(.tag, 1)
             if fraction == 0 {
                 digester.appendInteger(seconds)
@@ -212,4 +213,39 @@ extension Date: Digestible {
             digester.appendBigEndian(units)
         }
     }
+
+    /// The RFC 3339 form that Python's `datetime.isoformat()` writes for UTC, with `Z`.
+    ///
+    /// Formatted by hand so it never depends on a locale, a calendar or a formatter's options.
+    private var iso8601String: String {
+        let microseconds = Int64((timeIntervalSince1970 * 1_000_000).rounded())
+        let (seconds, fraction) = floorDivision(microseconds, 1_000_000)
+        let (days, secondOfDay) = floorDivision(seconds, 86_400)
+
+        // Civil date from days since 1970 (Howard Hinnant, "chrono-Compatible Low-Level Date Algorithms").
+        let shifted = days + 719_468
+        let era = floorDivision(shifted, 146_097).quotient
+        let dayOfEra = shifted - era * 146_097
+        let yearOfEra = (dayOfEra - dayOfEra / 1_460 + dayOfEra / 36_524 - dayOfEra / 146_096) / 365
+        let dayOfYear = dayOfEra - (365 * yearOfEra + yearOfEra / 4 - yearOfEra / 100)
+        let shiftedMonth = (5 * dayOfYear + 2) / 153
+        let day = dayOfYear - (153 * shiftedMonth + 2) / 5 + 1
+        let month = shiftedMonth < 10 ? shiftedMonth + 3 : shiftedMonth - 9
+        let year = yearOfEra + era * 400 + (month <= 2 ? 1 : 0)
+
+        var text = String(
+            format: "%04lld-%02lld-%02lldT%02lld:%02lld:%02lld",
+            year, month, day, secondOfDay / 3_600, secondOfDay / 60 % 60, secondOfDay % 60
+        )
+        if fraction != 0 {
+            text += String(format: ".%06lld", fraction)
+        }
+        return text + "Z"
+    }
+}
+
+/// Division that rounds toward negative infinity, so the remainder is never negative.
+private func floorDivision(_ dividend: Int64, _ divisor: Int64) -> (quotient: Int64, remainder: Int64) {
+    let (quotient, remainder) = dividend.quotientAndRemainder(dividingBy: divisor)
+    return remainder < 0 ? (quotient - 1, remainder + divisor) : (quotient, remainder)
 }

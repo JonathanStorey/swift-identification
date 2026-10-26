@@ -50,7 +50,14 @@ public struct Digester: Sendable {
         /// UTC-aware `dt`. Bytes: the microseconds since 1970 as 8 big-endian bytes, like
         /// `((dt - epoch) // timedelta(microseconds=1)).to_bytes(8, "big", signed=True)`.
         case microsecondsSince1970
-        /// Digests each date with the closure, for example as an ISO 8601 string.
+        /// An RFC 3339 string in UTC, rounded to the nearest microsecond, with six fractional
+        /// digits only when the fraction is not zero: `2026-10-26T15:00:00.250000Z`.
+        ///
+        /// Typed: CBOR tag 0 around the string, which is how `cbor2.dumps(dt, canonical=True)`
+        /// encodes a UTC-aware `dt` by default. Bytes: the UTF-8 string, like
+        /// `dt.isoformat().replace("+00:00", "Z").encode()`.
+        case iso8601
+        /// Digests each date with the closure.
         case custom(@Sendable (Date, inout Digester) -> Void)
     }
 

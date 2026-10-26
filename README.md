@@ -121,6 +121,7 @@ Floats follow IEEE 754: `0.0` and `-0.0` differ, and every NaN is the same.
 | `.millisecondsSince1970` | nearest millisecond | `datetime` with whole milliseconds |
 | `.secondsSince1970` | the `Double` since 1970 | `cbor2.CBORTag(1, t)` |
 | `.deferredToDate` | every distinct `Date`: its `Double` since 2001 | `float` |
+| `.iso8601` | nearest microsecond, as `2026-10-26T15:00:00.250000Z` | `datetime` (CBOR tag 0, cbor2's default) |
 | `.custom { date, digester in ... }` | whatever the closure combines | |
 
 ```swift
