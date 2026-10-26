@@ -52,7 +52,7 @@ struct UUIDTimestampRoundTripTests {
         Date(timeIntervalSince1970: 0),
     ])
     func exact(_ date: Date) throws {
-        #expect(Date(from: try UUID.timestamp(date)) == date)
+        #expect(Date(from: try TimestampGenerator().next(date)) == date)
     }
 
     @Test("Returns the exact Date for 100,000 random dates from 2018 to 2035")
@@ -60,7 +60,7 @@ struct UUIDTimestampRoundTripTests {
         var failures = 0
         for _ in 0..<100_000 {
             let date = Date(timeIntervalSinceReferenceDate: .random(in: 536_870_912..<1_073_741_824))
-            if Date(from: try UUID.timestamp(date)) != date {
+            if Date(from: try TimestampGenerator().next(date)) != date {
                 failures += 1
             }
         }
@@ -72,7 +72,7 @@ struct UUIDTimestampRoundTripTests {
         var failures = 0
         for _ in 0..<10_000 {
             let now = Date.now
-            if Date(from: try UUID.timestamp(now)) != now {
+            if Date(from: try TimestampGenerator().next(now)) != now {
                 failures += 1
             }
         }
@@ -87,7 +87,33 @@ struct UUIDTimestampOrderingTests {
         let generator = TimestampGenerator()
         let ids = try (0..<100_000).map { _ in try generator.next(sampleDate) }
         #expect(outOfOrderCount(ids) == 0)
-        #expect(ids.allSatisfy { Date(from: $0) == sampleDate })
+        #expect(Date(from: ids[0]) == sampleDate)
+        let last = Date(timeIntervalSinceReferenceDate: sampleDate.timeIntervalSinceReferenceDate + 99_999 * 0x1p-23)
+        #expect(Date(from: ids[99_999]) == last)
+    }
+
+    @Test("A tie advances by exactly one step of Date's precision", arguments: [
+        (sampleDate, 0x1p-23),                                            // 2018 to 2035: 2⁻²³ s
+        (Date(timeIntervalSinceReferenceDate: 1_073_741_824.5), 0x1p-22), // after 2035: 2⁻²² s
+        (Date(timeIntervalSinceReferenceDate: 0), 0x1p-23),               // before 2018: one tick
+    ])
+    func tieStep(_ date: Date, _ step: Double) throws {
+        let generator = TimestampGenerator()
+        let first = try #require(Date(from: generator.next(date)))
+        let second = try #require(Date(from: generator.next(date)))
+        #expect(first == date)
+        #expect(second.timeIntervalSinceReferenceDate == date.timeIntervalSinceReferenceDate + step)
+    }
+
+    @Test("A date inside an advanced run is also advanced")
+    func insideAdvancedRun() throws {
+        let generator = TimestampGenerator()
+        let tick = 0x1p-23
+        for _ in 0..<3 {
+            _ = try generator.next(sampleDate)  // stored at +0, +1 and +2 ticks
+        }
+        let next = try generator.next(sampleDate.addingTimeInterval(tick))
+        #expect(Date(from: next) == sampleDate.addingTimeInterval(3 * tick))
     }
 
     @Test("IDs created in a tight loop with Date.now stay in creation order")
@@ -129,7 +155,8 @@ struct UUIDTimestampPropertyTests {
         let id = UUID.timestamp
         let after = Date.now
         let date = try #require(Date(from: id))
-        #expect(before <= date && date <= after)
+        // A tie can advance the date by a few 119 ns steps past the clock reading.
+        #expect(before <= date && date <= after.addingTimeInterval(0.001))
     }
 
     @Test("Successive values are distinct")
@@ -152,7 +179,7 @@ struct UUIDTimestampPropertyTests {
     ])
     func fallback(_ date: Date) throws {
         let representable = UUID.representableDate(near: date)
-        #expect(Date(from: try UUID.timestamp(representable)) == representable)
+        #expect(Date(from: try TimestampGenerator().next(representable)) == representable)
     }
 }
 

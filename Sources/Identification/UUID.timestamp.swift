@@ -7,8 +7,6 @@ extension UUID {
         case outOfRange
         /// The date has precision finer than 2⁻²³ seconds, which only happens before 2018.
         case notLosslesslyRepresentable
-        /// More than 2²⁷ UUIDs shared the same timestamp.
-        case counterOverflow
     }
 
     /// Creates a time-ordered UUID v7 that stores `date` exactly.
@@ -16,10 +14,12 @@ extension UUID {
     /// The 122 payload bits are laid out as:
     /// - 48 bits: Unix milliseconds since 1970, as RFC 9562 requires.
     /// - 14 bits: the index of the `Date`'s exact 2⁻²³ s tick within that millisecond.
-    /// - 28 bits: a counter that keeps UUIDs with the same timestamp in creation order.
-    /// - 32 bits: random.
+    /// - 60 bits: random.
     ///
-    /// `Date(from:)` returns the identical `Date` for any date from 2018 onward.
+    /// UUIDs keep their creation order: when a date would repeat or fall inside the previous
+    /// UUID's timestamp, it advances by one step of `Date`'s own precision (2⁻²³ s, about
+    /// 119 ns, for dates from 2018 to 2035). Otherwise `Date(from:)` returns the identical
+    /// `Date` for any date from 2018 onward.
     public static func timestamp(_ date: Date = .now) throws(TimestampError) -> UUID {
         try TimestampGenerator.shared.next(date)
     }
@@ -34,7 +34,7 @@ extension UUID {
         if let id = try? TimestampGenerator.shared.next(now) {
             return id
         }
-        // The only remaining failure is more than 2²⁷ UUIDs in one 119 ns tick.
+        // A representable date in range cannot fail.
         return try! TimestampGenerator.shared.next(representableDate(near: now))
     }
 
@@ -50,33 +50,39 @@ extension UUID {
 
 // MARK: - Generator
 
-/// Remembers the last timestamp and counter so that UUIDs keep their creation order.
+/// Remembers the last timestamp so that UUIDs keep their creation order.
 ///
-/// When the timestamp repeats, the counter increments. When it changes, the counter restarts
-/// at a random value below 2²⁷. The timestamp itself is never altered, so it stays exact;
-/// after a clock step backward, new UUIDs sort by their true time.
+/// A date at or after the previous input but not after the previous stored timestamp is a
+/// tie: it is stored as the previous stored date advanced by one step of `Date`'s precision.
+/// A date before the previous input (a clock step backward, or an earlier explicit date) is
+/// stored exactly and sorts by its true time.
 final class TimestampGenerator: Sendable {
     static let shared = TimestampGenerator()
 
     private struct Last {
+        /// The timestamp of the date that was passed in.
+        var input: UInt64
+        /// The date that was stored, which is later than the input after a tie.
+        var stored: Double
         var timestamp: UInt64
-        var counter: UInt64
     }
 
     private let last = Mutex<Last?>(nil)
 
     func next(_ date: Date = .now) throws(UUID.TimestampError) -> UUID {
-        let timestamp = try UUID.timestampField(for: date)
-        let counter = try last.withLock { (last) throws(UUID.TimestampError) -> UInt64 in
-            var counter = UInt64.random(in: 0..<(1 << (UUID.counterBits - 1)))
-            if let previous = last, previous.timestamp == timestamp {
-                guard previous.counter < (1 << UUID.counterBits) - 1 else { throw .counterOverflow }
-                counter = previous.counter + 1
+        let input = try UUID.timestampField(for: date)
+        let timestamp = try last.withLock { (last) throws(UUID.TimestampError) -> UInt64 in
+            var stored = date.timeIntervalSinceReferenceDate
+            var timestamp = input
+            if let previous = last, input >= previous.input, input <= previous.timestamp {
+                // One step is the spacing of `Double` values, but never finer than one tick.
+                stored = previous.stored + max(previous.stored.ulp, 0x1p-23)
+                timestamp = try UUID.timestampField(for: Date(timeIntervalSinceReferenceDate: stored))
             }
-            last = Last(timestamp: timestamp, counter: counter)
-            return counter
+            last = Last(input: input, stored: stored, timestamp: timestamp)
+            return timestamp
         }
-        return UUID(timestamp: timestamp, counter: counter)
+        return UUID(timestamp: timestamp)
     }
 }
 
@@ -94,7 +100,6 @@ extension UUID {
     static let millisecondBits = 48
     static let tickIndexBits = 14
     static let timestampBits = millisecondBits + tickIndexBits
-    static let counterBits = 28
     /// Bits of a UUID that are neither version nor variant.
     static let payloadBits = 122
 
@@ -141,14 +146,12 @@ extension UUID {
         return high << 74 | middle << 62 | low
     }
 
-    /// Lays out the payload as timestamp, counter and random bits, and inserts the version and variant.
-    init(timestamp: UInt64, counter: UInt64) {
+    /// Lays out the payload as timestamp and random bits, and inserts the version and variant.
+    init(timestamp: UInt64) {
         var generator = SystemRandomNumberGenerator()
-        let randomBits = Self.payloadBits - Self.timestampBits - Self.counterBits
+        let randomBits = Self.payloadBits - Self.timestampBits
         let random = UInt128(generator.next() as UInt64) & Self.mask(randomBits)
-        let payload: UInt128 = UInt128(timestamp) << (Self.payloadBits - Self.timestampBits)
-            | UInt128(counter) << randomBits
-            | random
+        let payload: UInt128 = UInt128(timestamp) << randomBits | random
 
         let high: UInt128 = payload >> 74
         let middle: UInt128 = payload >> 62 & 0xFFF
