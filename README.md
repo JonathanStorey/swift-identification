@@ -48,7 +48,9 @@ checksum.hex    // "a6dc1f38a111301a02f8c66046712cd9"
 checksum.uuid   // A6DC1F38-A111-301A-02F8-C66046712CD9
 ```
 
-`checksum.uuid` keeps all 128 bits, so it is UUID-shaped but not an RFC 9562 UUID.
+`checksum.uuid` keeps all 128 bits, so it is UUID-shaped but not an RFC 9562 UUID. A stored
+checksum comes back with `Checksum(hex:)`, `Checksum(uuid:)` or `Codable`, which writes the hex
+string.
 
 Conform your own types like `Hashable`:
 
@@ -115,20 +117,23 @@ Floats follow IEEE 754: `0.0` and `-0.0` differ, and every NaN is the same.
 
 #### Dates
 
+The default keeps every distinct `Date` apart. Choose `.microsecondsSince1970` when the same
+dates live in Python as `datetime` values.
+
 `dateDigestingStrategy` borrows its names from `JSONEncoder.DateEncodingStrategy`:
 
 | Strategy | Precision | Python for `.typed` |
 | --- | --- | --- |
-| `.microsecondsSince1970` (default) | nearest microsecond, like `datetime` | `datetime` (CBOR tag 1) |
-| `.millisecondsSince1970` | nearest millisecond | `datetime` with whole milliseconds |
+| `.deferredToDate` (default) | every distinct `Date`: its `Double` since 2001 | `float` |
 | `.secondsSince1970` | the `Double` since 1970 | `cbor2.CBORTag(1, t)` |
-| `.deferredToDate` | every distinct `Date`: its `Double` since 2001 | `float` |
+| `.millisecondsSince1970` | nearest millisecond | `datetime` with whole milliseconds |
+| `.microsecondsSince1970` | nearest microsecond, like `datetime` | `datetime` (CBOR tag 1) |
 | `.iso8601` | nearest microsecond, as `2026-10-26T15:00:00.250000Z` | `datetime` (CBOR tag 0, cbor2's default) |
 | `.custom { date, digester in ... }` | whatever the closure combines | |
 
 ```swift
-let exact = Digester(dateDigestingStrategy: .deferredToDate)
-date.checksum(using: exact)
+let python = Digester(dateDigestingStrategy: .microsecondsSince1970)
+date.checksum(using: python)   // equals checksum(dt) for the equivalent UTC datetime
 ```
 
 `Digester(stringDigestingStrategy: .normalized)` hashes strings in NFC (Python:

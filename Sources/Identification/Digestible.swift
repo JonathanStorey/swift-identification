@@ -69,7 +69,7 @@ extension Substring: Digestible {
 /// Typed: a CBOR byte string, like Python `bytes`. Bytes: the bytes as given.
 extension Data: Digestible {
     public func digest(into digester: inout Digester) {
-        digester.combine(bytes: self)
+        digester.appendByteString(self)
     }
 }
 
@@ -90,7 +90,7 @@ extension UUID: Digestible {
 extension Array: Digestible where Element: Digestible {
     public func digest(into digester: inout Digester) {
         if let bytes = self as? [UInt8] {
-            digester.combine(bytes: bytes)
+            digester.appendByteString(bytes)
             return
         }
         if digester.encoding == .typed {

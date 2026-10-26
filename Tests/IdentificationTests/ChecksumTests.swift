@@ -4,7 +4,7 @@ import Testing
 
 /// Expected values were computed with Python 3.13 and cbor2 6.1:
 /// `hashlib.sha256(b).digest()[:16]`, where `b` is
-/// `cbor2.dumps(v, canonical=True, datetime_as_timestamp=True)` for the typed encoding and
+/// `cbor2.dumps(v, canonical=True)` for the typed encoding and
 /// the Python expression in each test for the bytes encoding.
 @Suite("Checksum, typed")
 struct TypedChecksumTests {
@@ -96,14 +96,34 @@ struct TypedChecksumTests {
         (-0.5, "3640d5b2c6a06a0e79bb74650307d64f"),
     ])
     func dates(_ interval: TimeInterval, _ hex: String) {
-        #expect(Date(timeIntervalSince1970: interval).checksum().hex == hex)
+        // cbor2.dumps(dt, canonical=True, datetime_as_timestamp=True)
+        let digester = Digester(dateDigestingStrategy: .microsecondsSince1970)
+        #expect(Date(timeIntervalSince1970: interval).checksum(using: digester).hex == hex)
     }
 
     @Test("Dates round to the nearest microsecond")
     func datePrecision() {
+        let digester = Digester(dateDigestingStrategy: .microsecondsSince1970)
         let date = Date(timeIntervalSince1970: 1_793_026_800.25)
-        #expect(date.addingTimeInterval(0.000_000_2).checksum() == date.checksum())
-        #expect(date.addingTimeInterval(0.000_001).checksum() != date.checksum())
+        #expect(date.addingTimeInterval(0.000_000_2).checksum(using: digester) == date.checksum(using: digester))
+        #expect(date.addingTimeInterval(0.000_001).checksum(using: digester) != date.checksum(using: digester))
+    }
+
+    @Test("Restores from hex, from its UUID and from Codable")
+    func restore() throws {
+        let checksum = "abc".checksum()
+        #expect(Checksum(hex: checksum.hex) == checksum)
+        #expect(Checksum(hex: checksum.hex.uppercased()) == checksum)
+        #expect(Checksum(uuid: checksum.uuid) == checksum)
+        #expect(Checksum(hex: "abc") == nil)
+        #expect(Checksum(hex: String(repeating: "g", count: 32)) == nil)
+
+        let json = try JSONEncoder().encode([checksum])
+        #expect(String(decoding: json, as: UTF8.self) == "[\"\(checksum.hex)\"]")
+        #expect(try JSONDecoder().decode([Checksum].self, from: json) == [checksum])
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(Checksum.self, from: Data("\"abc\"".utf8))
+        }
     }
 
     @Test("Keeps every bit in its UUID, like uuid.UUID(bytes=...)")
@@ -227,8 +247,9 @@ struct DateDigestingStrategyTests {
         date.checksum(using: Digester(encoding: encoding, dateDigestingStrategy: strategy)).hex
     }
 
-    @Test("Deferred to Date matches the Double since 2001 and tells every Date apart")
+    @Test("Deferred to Date is the default, matches the Double since 2001 and tells every Date apart")
     func deferredToDate() {
+        #expect(checksum(date, .deferredToDate) == date.checksum().hex)
         // cbor2.dumps(814719600.25, canonical=True) and struct.pack(">d", 814719600.25)
         #expect(checksum(date, .deferredToDate) == "26de88594df6fce2fc537e68cc3f1d6f")
         #expect(checksum(date, .deferredToDate, .bytes) == "07d64cc6bc1def487066c6903df8a9f7")
@@ -258,9 +279,8 @@ struct DateDigestingStrategyTests {
         #expect(checksum(date, .millisecondsSince1970, .bytes) == "e272a56f38c36873a9b51c38bac9ad85")
     }
 
-    @Test("Microseconds since 1970 is the default")
+    @Test("Microseconds since 1970 merges dates within half a microsecond")
     func microsecondsSince1970() {
-        #expect(checksum(date, .microsecondsSince1970) == date.checksum().hex)
         #expect(checksum(nextDate, .microsecondsSince1970) == checksum(date, .microsecondsSince1970))
     }
 
@@ -318,7 +338,7 @@ struct DigesterTests {
         var digester = Digester(encoding: .bytes)
         digester.combine("id")
         digester.combine(42)
-        digester.combine(bytes: withUnsafeBytes(of: UUID.url.uuid) { Array($0) })
+        digester.combine(Data(withUnsafeBytes(of: UUID.url.uuid) { Array($0) }))
         #expect(digester.finalize().hex == expected)
     }
 

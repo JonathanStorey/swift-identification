@@ -34,7 +34,7 @@ public struct Digester: Sendable {
     /// How dates are turned into bytes, named after `JSONEncoder.DateEncodingStrategy`.
     public enum DateDigestingStrategy: Sendable {
         /// Date's own representation, the `Double` seconds since 2001-01-01, so every
-        /// distinct `Date` has a distinct checksum. Typed: a CBOR float, like
+        /// distinct `Date` has a distinct checksum. The default. Typed: a CBOR float, like
         /// `cbor2.dumps(t)`. Bytes: `struct.pack(">d", t)`.
         case deferredToDate
         /// The `Double` seconds since 1970. Converting from 2001 can merge dates less than one
@@ -44,7 +44,8 @@ public struct Digester: Sendable {
         /// Rounded to the nearest millisecond. Typed: as `.microsecondsSince1970`. Bytes: the
         /// milliseconds since 1970 as 8 big-endian bytes.
         case millisecondsSince1970
-        /// Rounded to the nearest microsecond, the precision of Python's `datetime`.
+        /// Rounded to the nearest microsecond, the precision of Python's `datetime`. Use it when
+        /// dates pass through Python as `datetime` values.
         ///
         /// Typed: CBOR tag 1 around the seconds since 1970, an integer when whole and otherwise
         /// a float, like `cbor2.dumps(dt, canonical=True, datetime_as_timestamp=True)` for a
@@ -59,17 +60,20 @@ public struct Digester: Sendable {
         /// `dt.isoformat().replace("+00:00", "Z").encode()`.
         case iso8601
         /// Digests each date with the closure.
+        ///
+        /// The closure must combine something derived from the date, such as a string or a
+        /// number. Combining the date itself calls the closure again without end.
         case custom(@Sendable (Date, inout Digester) -> Void)
     }
 
     /// How values combined into this digester are turned into bytes.
     public let encoding: Encoding
 
-    /// How dates combined into this digester are turned into bytes.
-    public let dateDigestingStrategy: DateDigestingStrategy
-
     /// How strings combined into this digester are turned into bytes.
     public let stringDigestingStrategy: StringDigestingStrategy
+
+    /// How dates combined into this digester are turned into bytes.
+    public let dateDigestingStrategy: DateDigestingStrategy
 
     private var message: [UInt8] = []
 
@@ -77,7 +81,7 @@ public struct Digester: Sendable {
     public init(
         encoding: Encoding = .typed,
         stringDigestingStrategy: StringDigestingStrategy = .verbatim,
-        dateDigestingStrategy: DateDigestingStrategy = .microsecondsSince1970
+        dateDigestingStrategy: DateDigestingStrategy = .deferredToDate
     ) {
         self.encoding = encoding
         self.stringDigestingStrategy = stringDigestingStrategy
@@ -89,9 +93,9 @@ public struct Digester: Sendable {
         value.digest(into: &self)
     }
 
-    /// Adds a byte string to the digester: a CBOR byte string when typed, like Python's
-    /// `cbor2.dumps(b)`, or the bytes themselves, like `h.update(b)`.
-    public mutating func combine(bytes: some Sequence<UInt8>) {
+    /// Appends a byte string: a CBOR byte string when typed, like Python's `cbor2.dumps(b)`, or
+    /// the bytes themselves, like `h.update(b)`.
+    mutating func appendByteString(_ bytes: some Sequence<UInt8>) {
         switch encoding {
         case .typed:
             let bytes = Array(bytes)
