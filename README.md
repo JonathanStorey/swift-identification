@@ -13,7 +13,7 @@ Add the package to your `Package.swift` dependencies:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/JonathanStorey/swift-identification.git", from: "0.1.0"),
+    .package(url: "https://github.com/JonathanStorey/swift-identification.git", from: "0.2.0"),
 ],
 ```
 
