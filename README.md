@@ -4,7 +4,7 @@ A Swift package for unique identification and checksums built on `UUID`.
 
 ## Requirements
 
-- Swift 6.2 or later (Xcode 26 or later)
+- Swift 6.0 or later (Xcode 16 or later)
 - macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, or Linux
 
 ## Installation
@@ -13,7 +13,7 @@ Add the package to your `Package.swift` dependencies:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/JonathanStorey/swift-identification.git", branch: "main"),
+    .package(url: "https://github.com/JonathanStorey/swift-identification.git", from: "0.1.0"),
 ],
 ```
 
